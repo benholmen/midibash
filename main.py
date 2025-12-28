@@ -1,22 +1,29 @@
 # /// script
 # dependencies = [
+#     "gpiozero>=2.0.1",
 #     "mido>=1.3.3",
-#     "pigpio>=1.78",
 #     "python-rtmidi>=1.5.8",
 # ]
 # ///
+from gpiozero import Button
 import mido
 from mido import MidiFile
 from pathlib import Path
-import pigpio
 import sys
 import time
+
+recording = False
+midi_file = None
+midi_track = None
 
 def main():
     instrument_name = 'LPK25 mk2'
     button_note = 36
     active_solenoids = {}
-    recording = False
+    
+    button_record = Button(2)
+    button_record.when_pressed = start_recording()
+    button.record.when_pressed = end_recording()
 
     if instrument_name not in mido.get_input_names():
         print(f"\033[1;31mCould not find {instrument_name}.\033[0m")
@@ -27,11 +34,6 @@ def main():
             time.sleep(1)
 
         sys.stdout.write(f"\n\n{instrument_name} is now available, proceeding")
-
-    # init pigpio, if present
-    gpio = pigpio.pi()
-    if not gpio.connected:
-        print("\033[1;31mCould not init pigpio, did you run sudo pigpiod?\033[0m")
 
     midi_port = mido.open_input(instrument_name)
 
@@ -57,27 +59,20 @@ def main():
                     print("\033[1;31mBUTTON!!\033[0m")
 
                     if recording:
-                        # save_file(midi_file)
-                        Path('recordings').mkdir(exist_ok=True)
-                        midi_file.save('recordings/output.mid')
-                        midi_track = None
-                        recording = False
+                        end_recording()
                     else:
-                        midi_file = MidiFile()
-                        midi_track = midi_file.add_track('Ben')
-                        recording = True
-                        last_time = now
+                        start_recording()
 
                 pin = pin_for(msg.note)
 
                 if (pin):
-                    start(pin)
+                    start_note(pin)
                     active_solenoids[pin] = now + (duration_for(msg.velocity) / 100)
 
             # check for expired notes
             for pin in list(active_solenoids.keys()):
                 if now >= active_solenoids[pin]:
-                    stop(pin)
+                    end_note(pin)
                     del active_solenoids[pin]
 
             # debug output
@@ -93,8 +88,7 @@ def main():
         print("\n\033[1;31mCleaning up\033[0m")
 
         if recording:
-            Path('recordings').mkdir(exist_ok=True)
-            midi_file.save('recordings/output.mid')
+            end_recording()
 
         for pin in list(active_solenoids.keys()):
             stop(pin)        
@@ -117,15 +111,27 @@ def duration_for(velocity: int) -> int:
 
     return round(velocity / 128 * (max - min)) + min
 
-def start(pin: int):
+def start_recording() -> None:
+    midi_file = MidiFile()
+    midi_track = midi_file.add_track('Ben')
+    last_time = time.time()
+    recording = True
+
+def end_recording() -> None:
+    Path('recordings').mkdir(exist_ok=True)
+    midi_file.save('recordings/output.mid')
+    midi_track = None
+    recording = False
+
+def start_note(pin: int) -> None:
     # print("↓", pin)
     return
 
-def stop(pin: int):
+def end_note(pin: int) -> None:
     # print ("↑", pin)
     return
 
-def bash(pin: int, duration: int):
+def bash(pin: int, duration: int) -> None:
     print("↯↯", pin, "for", duration, "ms")
 
 if __name__ == "__main__":
