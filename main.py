@@ -1,10 +1,4 @@
-# /// script
-# dependencies = [
-#     "gpiozero>=2.0.1",
-#     "mido>=1.3.3",
-#     "python-rtmidi>=1.5.8",
-# ]
-# ///
+#!/usr/bin/env python3
 from gpiozero import Button
 import mido
 from mido import MidiFile
@@ -12,30 +6,97 @@ from pathlib import Path
 import sys
 import time
 
-recording = False
-midi_file = None
-midi_track = None
+# https://learn.adafruit.com/adafruit-i2c-to-8-channel-solenoid-driver/circuitpython-and-python
+import board
+from adafruit_mcp230xx.mcp23017 import MCP23017
+
+try:
+    i2c = board.I2C()
+    mcp = MCP23017(i2c)
+    print("MCP23017 found successfully!")
+except Exception as e:
+    print(f"Could not connect to MCP23017: {e}")
+    print("Check your wiring and run 'sudo i2cdetect -y 1' again.")
+    exit()
+
+# Create a list of all 8 pins on Port A (A0-A7)
+solenoids = []
+for i in range(8):
+    pin = mcp.get_pin(i)
+    pin.switch_to_output(value=False)
+    solenoids.append(pin)
+
+print("Starting Solenoid Test Loop (A0-A7)...")
+print("Press Ctrl+C to stop.")
+
+try:
+    while True:
+        for index, noid in enumerate(solenoids):
+            print(f"Activating A{index}...")
+            noid.value = True
+            
+            # Verify the state by reading it back
+            time.sleep(0.1) 
+            print(f"A{index} state is now: {noid.value}")
+            
+            time.sleep(0.5)
+            noid.value = False
+            time.sleep(0.1)
+            
+        print("-" * 20)
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("\nCleaning up... turning all solenoids off.")
+    for noid in solenoids:
+        noid.value = False
 
 def main():
     instrument_name = 'LPK25 mk2'
     button_note = 36
     active_solenoids = {}
+    recording = False
+    midi_file = None
+    midi_track = None
+    last_time = None
+    midi_port = None
+
+    def start_recording():
+        nonlocal midi_file, midi_track, recording, last_time
+
+        print("Starting recording")
+        midi_file = MidiFile()
+        midi_track = midi_file.add_track('Ben')
+        recording = True
+        last_time = time.time()
+
+    def end_recording():
+        nonlocal midi_file, midi_track, recording
+
+        print("Ending recording")
+        if len(midi_track) > 0:
+            Path('recordings').mkdir(exist_ok=True)
+            midi_file.save('recordings/output.mid')
+        else:
+            print("Track is empty, skipping.")
+
+        recording = False
     
-    button_record = Button(2)
-    button_record.when_pressed = start_recording()
-    button.record.when_pressed = end_recording()
+    # button_record = Button(2)
+    # button_record.when_pressed = start_recording
+    # button_record.when_pressed = end_recording
 
-    if instrument_name not in mido.get_input_names():
-        print(f"\033[1;31mCould not find {instrument_name}.\033[0m")
+    while midi_port is None:
+        for input_name in mido.get_input_names():
+            if instrument_name in input_name:
+                midi_port = mido.open_input(input_name)
 
-        while instrument_name not in mido.get_input_names():
+                sys.stdout.write(f"\nUsing {input_name}")        
+
+        if midi_port is None:
             sys.stdout.write(f" Available inputs: " + ", ".join(mido.get_input_names()).ljust(40, " ") + "\r")
                 
             time.sleep(1)
-
-        sys.stdout.write(f"\n\n{instrument_name} is now available, proceeding")
-
-    midi_port = mido.open_input(instrument_name)
 
     print("\033[90m", "waiting for messages", "\033[0m")
 
@@ -46,7 +107,8 @@ def main():
             # check for new note
             msg = midi_port.receive(block=False)
 
-            if msg and recording:
+            # todo: refactor away from the button_note
+            if msg and recording and msg.note is not button_note:
                 msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
                 last_time = now
                 midi_track.append(msg)
@@ -54,9 +116,10 @@ def main():
             if msg and msg.type == 'note_on':
                 print("\t\033[90m", msg, "\033[0m")
 
+                # todo: refactor away from the button_note
                 if msg.note is button_note:
                     # use this note as a button for now
-                    print("\033[1;31mBUTTON!!\033[0m")
+                    print("\033[1;31mBUTTON!!\033[0m", recording)
 
                     if recording:
                         end_recording()
@@ -91,7 +154,7 @@ def main():
             end_recording()
 
         for pin in list(active_solenoids.keys()):
-            stop(pin)        
+            stop(pin)
 
 def pin_for(note: int) -> int:
     min = 36
@@ -110,18 +173,6 @@ def duration_for(velocity: int) -> int:
     max = 40
 
     return round(velocity / 128 * (max - min)) + min
-
-def start_recording() -> None:
-    midi_file = MidiFile()
-    midi_track = midi_file.add_track('Ben')
-    last_time = time.time()
-    recording = True
-
-def end_recording() -> None:
-    Path('recordings').mkdir(exist_ok=True)
-    midi_file.save('recordings/output.mid')
-    midi_track = None
-    recording = False
 
 def start_note(pin: int) -> None:
     # print("↓", pin)
