@@ -10,6 +10,7 @@ import time
 import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
+# temp: a single MCP23017
 try:
     i2c = board.I2C()
     mcp = MCP23017(i2c)
@@ -19,37 +20,9 @@ except Exception as e:
     print("Check your wiring and run 'sudo i2cdetect -y 1' again.")
     exit()
 
-# Create a list of all 8 pins on Port A (A0-A7)
-solenoids = []
-for i in range(8):
-    pin = mcp.get_pin(i)
-    pin.switch_to_output(value=False)
-    solenoids.append(pin)
-
-print("Starting Solenoid Test Loop (A0-A7)...")
-print("Press Ctrl+C to stop.")
-
-try:
-    while True:
-        for index, noid in enumerate(solenoids):
-            print(f"Activating A{index}...")
-            noid.value = True
-            
-            # Verify the state by reading it back
-            time.sleep(0.1) 
-            print(f"A{index} state is now: {noid.value}")
-            
-            time.sleep(0.5)
-            noid.value = False
-            time.sleep(0.1)
-            
-        print("-" * 20)
-        time.sleep(1)
-
-except KeyboardInterrupt:
-    print("\nCleaning up... turning all solenoids off.")
-    for noid in solenoids:
-        noid.value = False
+# temp: a single I2C pin
+i2c_pin = mcp.get_pin(0)
+i2c_pin.switch_to_output(value=False)
 
 def main():
     instrument_name = 'LPK25 mk2'
@@ -167,23 +140,19 @@ def pin_for(note: int) -> int:
 
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
-    # such as 10-40
     # this will be the duration we activate the solenoid
-    min = 10
-    max = 40
+    min = 5
+    max = 20
 
     return round(velocity / 128 * (max - min)) + min
 
 def start_note(pin: int) -> None:
-    # print("↓", pin)
-    return
+    global i2c_pin
+    i2c_pin.value = True
 
 def end_note(pin: int) -> None:
-    # print ("↑", pin)
-    return
-
-def bash(pin: int, duration: int) -> None:
-    print("↯↯", pin, "for", duration, "ms")
+    global i2c_pin
+    i2c_pin.value = False
 
 if __name__ == "__main__":
     main()
