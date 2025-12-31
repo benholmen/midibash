@@ -118,7 +118,7 @@ def main():
             sys.stdout.flush()
             
             # sleep
-            time.sleep(0.001)
+            time.sleep(0.0005)
 
     except KeyboardInterrupt:
         print("\n\033[1;31mCleaning up\033[0m")
@@ -141,8 +141,8 @@ def pin_for(note: int) -> int:
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
     # this will be the duration we activate the solenoid
-    min = 5
-    max = 20
+    min = 3
+    max = 15
 
     return round(velocity / 128 * (max - min)) + min
 
