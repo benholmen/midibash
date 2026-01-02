@@ -103,7 +103,7 @@ def main():
 
                 if (pin):
                     start_note(pin)
-                    active_solenoids[pin] = now + (duration_for(msg.velocity) / 100)
+                    active_solenoids[pin] = now + (duration_for(msg.velocity) / 1000)
 
             # check for expired notes
             for pin in list(active_solenoids.keys()):
@@ -127,7 +127,7 @@ def main():
             end_recording()
 
         for pin in list(active_solenoids.keys()):
-            stop(pin)
+            end_note(pin)
 
 def pin_for(note: int) -> int:
     min = 36
@@ -141,8 +141,8 @@ def pin_for(note: int) -> int:
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
     # this will be the duration we activate the solenoid
-    min = 3
-    max = 15
+    min = 20
+    max = 40
 
     return round(velocity / 128 * (max - min)) + min
 
