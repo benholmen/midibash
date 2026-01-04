@@ -10,66 +10,34 @@ import time
 import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
-# temp: a single MCP23017
-try:
-    i2c = board.I2C()
-    mcp = MCP23017(i2c)
-    print("MCP23017 found successfully!")
-except Exception as e:
-    print(f"Could not connect to MCP23017: {e}")
-    print("Check your wiring and run 'sudo i2cdetect -y 1' again.")
-    exit()
+instrument_name = 'LPK25 mk2'
+button_note = 61    # C# above C4
 
-# temp: a single I2C pin
-i2c_pin = mcp.get_pin(0)
-i2c_pin.switch_to_output(value=False)
+# midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
+pin_mapping = {
+    60: 0,  # C4
+    72: 0,  # C5
+    77: 1,  # F5
+    81: 2,  # A5
+}
+
+active_solenoids = {}
+pins = {}
+button_record = None
+recording = False
+midi_file = None
+midi_track = None
+last_time = None
+midi_port = None
 
 def main():
-    instrument_name = 'LPK25 mk2'
-    button_note = 36
-    active_solenoids = {}
-    recording = False
-    midi_file = None
-    midi_track = None
-    last_time = None
-    midi_port = None
-
-    def start_recording():
-        nonlocal midi_file, midi_track, recording, last_time
-
-        print("Starting recording")
-        midi_file = MidiFile()
-        midi_track = midi_file.add_track('Ben')
-        recording = True
-        last_time = time.time()
-
-    def end_recording():
-        nonlocal midi_file, midi_track, recording
-
-        print("Ending recording")
-        if len(midi_track) > 0:
-            Path('recordings').mkdir(exist_ok=True)
-            midi_file.save('recordings/output.mid')
-        else:
-            print("Track is empty, skipping.")
-
-        recording = False
+    global active_solenoids, button_note, midi_port, midi_track,
     
-    # button_record = Button(2)
-    # button_record.when_pressed = start_recording
-    # button_record.when_pressed = end_recording
+    init_button()
 
-    while midi_port is None:
-        for input_name in mido.get_input_names():
-            if instrument_name in input_name:
-                midi_port = mido.open_input(input_name)
-
-                sys.stdout.write(f"\nUsing {input_name}")        
-
-        if midi_port is None:
-            sys.stdout.write(f" Available inputs: " + ", ".join(mido.get_input_names()).ljust(40, " ") + "\r")
-                
-            time.sleep(1)
+    init_keyboard()
+    
+    init_pins()
 
     print("\033[90m", "waiting for messages", "\033[0m")
 
@@ -130,13 +98,7 @@ def main():
             end_note(pin)
 
 def pin_for(note: int) -> int:
-    min = 36
-    max = 85
-
-    if (note < min or note > max):
-        return
-
-    return note - min
+    return pins.get(note)
 
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
@@ -147,12 +109,70 @@ def duration_for(velocity: int) -> int:
     return round(velocity / 128 * (max - min)) + min
 
 def start_note(pin: int) -> None:
-    global i2c_pin
-    i2c_pin.value = True
+    global pins
+    pins[pin].value = True
 
 def end_note(pin: int) -> None:
-    global i2c_pin
-    i2c_pin.value = False
+    global pins
+    pins[pin].value = False
+
+def init_button() -> None:
+    # button_record = Button(2)
+    # button_record.when_pressed = start_recording
+    # button_record.when_pressed = end_recording
+
+def init_keyboard() -> None:
+    global instrument_name, midi_port
+    
+    while midi_port is None:
+        for input_name in mido.get_input_names():
+            if instrument_name in input_name:
+                midi_port = mido.open_input(input_name)
+
+                sys.stdout.write(f"\nUsing {input_name}")        
+
+        if midi_port is None:
+            sys.stdout.write(f" Available inputs: " + ", ".join(mido.get_input_names()).ljust(40, " ") + "\r")
+                
+            time.sleep(0.5)
+
+def init_pins() -> None:
+    global pin_mapping, pins
+
+    try:
+        i2c = board.I2C()
+        mcp = MCP23017(i2c)
+        print("MCP23017 found successfully!")
+    except Exception as e:
+        print(f"Could not connect to MCP23017: {e}")
+        exit()
+    
+    for midi_note, pin in pin_mapping.items():
+        i2c_pin = mcp.get_pin(pin)
+        i2c_pin.switch_to_output(value=False)
+        pins[midi_note] = i2c_pin
+
+def start_recording():
+    global midi_file, midi_track, recording, last_time
+
+    print("Starting recording")
+    midi_file = MidiFile()
+    midi_track = midi_file.add_track('Ben')
+    recording = True
+    last_time = time.time()
+
+def end_recording():
+    global midi_file, midi_track, recording
+
+    print("Ending recording")
+    if len(midi_track) > 0:
+        Path('recordings').mkdir(exist_ok=True)
+        midi_file.save('recordings/output.mid')
+    else:
+        print("Track is empty, skipping.")
+
+    recording = False
+
 
 if __name__ == "__main__":
     main()
