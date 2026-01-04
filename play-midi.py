@@ -166,7 +166,7 @@ def end_note(pin: int) -> None:
     print("↑", pin)
 
 
-def track_length(path: str) -> Int:
+def track_length(path: str) -> int:
     length = None
     for msg in MidiFile(path):
         if length is not None:
