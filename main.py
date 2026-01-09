@@ -31,7 +31,7 @@ last_time = None
 midi_port = None
 
 def main():
-    global active_solenoids, button_note, midi_port, midi_track,
+    global button_note, midi_port
     
     init_button()
 
@@ -50,9 +50,7 @@ def main():
 
             # todo: refactor away from the button_note
             if msg and recording and msg.note is not button_note:
-                msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
-                last_time = now
-                midi_track.append(msg)
+                record_note(msg)
 
             if msg and msg.type == 'note_on':
                 print("\t\033[90m", msg, "\033[0m")
@@ -70,20 +68,9 @@ def main():
                 pin = pin_for(msg.note)
 
                 if (pin):
-                    start_note(pin)
-                    active_solenoids[pin] = now + (duration_for(msg.velocity) / 1000)
+                    start_note(pin, duration_for(msg.velocity))
 
-            # check for expired notes
-            for pin in list(active_solenoids.keys()):
-                if now >= active_solenoids[pin]:
-                    end_note(pin)
-                    del active_solenoids[pin]
-
-            # debug output
-            active_count = len(active_solenoids)
-            status_bar = "".join([str(k) + " " for k in active_solenoids.keys()])
-            sys.stdout.write(f"\r{status_bar.ljust(40, ".")}")
-            sys.stdout.flush()
+            turn_off_solenoids()
             
             # sleep
             time.sleep(0.0005)
@@ -94,8 +81,7 @@ def main():
         if recording:
             end_recording()
 
-        for pin in list(active_solenoids.keys()):
-            end_note(pin)
+        turn_off_solenoids(force = True)
 
 def pin_for(note: int) -> int:
     return pins.get(note)
@@ -108,16 +94,21 @@ def duration_for(velocity: int) -> int:
 
     return round(velocity / 128 * (max - min)) + min
 
-def start_note(pin: int) -> None:
-    global pins
+def start_note(pin: int, duration_ms: int) -> None:
+    global active_solenoids, pins
+    
+    active_solenoids[pin] = now + duration_ms / 1000
     pins[pin].value = True
 
 def end_note(pin: int) -> None:
-    global pins
+    global active_solenoids, pins
+    
+    del active_solenoids[pin]
     pins[pin].value = False
 
 def init_button() -> None:
-    # button_record = Button(2)
+    global button_pin
+    # button_record = Button(button_pin)
     # button_record.when_pressed = start_recording
     # button_record.when_pressed = end_recording
 
@@ -152,6 +143,14 @@ def init_pins() -> None:
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
 
+def turn_off_solenoids(force: bool = False) -> None:
+    global active_solenoids
+    
+    now = time.time()
+    for pin in list(active_solenoids.keys()):
+        if force or now >= active_solenoids[pin]:
+            end_note(pin)
+
 def start_recording():
     global midi_file, midi_track, recording, last_time
 
@@ -160,6 +159,15 @@ def start_recording():
     midi_track = midi_file.add_track('Ben')
     recording = True
     last_time = time.time()
+
+def record_note(msg) -> None:
+    global last_time, midi_file, midi_track
+    
+    now = time.time()
+    
+    msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
+    last_time = now
+    midi_track.append(msg)
 
 def end_recording():
     global midi_file, midi_track, recording
