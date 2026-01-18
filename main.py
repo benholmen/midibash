@@ -11,14 +11,14 @@ import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
 instrument_name = 'LPK25 mk2'
-button_note = 61    # C# above C4
+button_note = 49    # C# above C3
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 pin_mapping = {
+    57: 1,  # A3
     60: 0,  # C4
-    72: 0,  # C5
-    77: 1,  # F5
-    81: 2,  # A5
+    65: 2,  # F4
+    69: 3,  # A4
 }
 
 active_solenoids = {}
