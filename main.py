@@ -67,8 +67,8 @@ def main():
 
                 pin = pin_for(msg.note)
 
-                if (pin):
-                    start_note(pin, duration_for(msg.velocity))
+                if (pin is not None):
+                    start_note(msg.note, duration_for(msg.velocity))
 
             turn_off_solenoids()
             
@@ -84,27 +84,31 @@ def main():
         turn_off_solenoids(force = True)
 
 def pin_for(note: int) -> int:
-    return pins.get(note)
+    if note in pin_mapping:
+        return pin_mapping.get(note)
+    
+    return None
 
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
     # this will be the duration we activate the solenoid
-    min = 20
-    max = 40
+    min = 4
+    max = 10
 
     return round(velocity / 128 * (max - min)) + min
 
-def start_note(pin: int, duration_ms: int) -> None:
+def start_note(note: int, duration_ms: int) -> None:
     global active_solenoids, pins
     
-    active_solenoids[pin] = now + duration_ms / 1000
-    pins[pin].value = True
+    active_solenoids[note] = time.time() + duration_ms / 1000
+    
+    pins[note].value = True
 
-def end_note(pin: int) -> None:
+def end_note(note: int) -> None:
     global active_solenoids, pins
     
-    del active_solenoids[pin]
-    pins[pin].value = False
+    del active_solenoids[note]
+    pins[note].value = False
 
 def init_button() -> None:
     global button_pin
@@ -132,24 +136,25 @@ def init_pins() -> None:
 
     try:
         i2c = board.I2C()
-        mcp = MCP23017(i2c)
+        mcp = MCP23017(i2c, address=0x20)
         print("MCP23017 found successfully!")
     except Exception as e:
         print(f"Could not connect to MCP23017: {e}")
         exit()
     
     for midi_note, pin in pin_mapping.items():
+        print(f"mapping midi note {midi_note} to pin {pin}")
         i2c_pin = mcp.get_pin(pin)
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
-
+    
 def turn_off_solenoids(force: bool = False) -> None:
     global active_solenoids
     
     now = time.time()
-    for pin in list(active_solenoids.keys()):
-        if force or now >= active_solenoids[pin]:
-            end_note(pin)
+    for note in list(active_solenoids.keys()):
+        if force or now >= active_solenoids[note]:
+            end_note(note)
 
 def start_recording():
     global midi_file, midi_track, recording, last_time
