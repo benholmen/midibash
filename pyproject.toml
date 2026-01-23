@@ -1,7 +1,7 @@
 [project]
-name = "midi"
+name = "midibash"
 version = "0.1.0"
-description = "Read the MIDI and hit the solenoids"
+description = "Read the MIDI and bash the solenoids"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
