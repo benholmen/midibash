@@ -4,6 +4,7 @@
 # dependencies = [
 #   "python-escpos>=3.0",
 #   "pillow>=12.1.0",
+#   "pyusb>=1.0",
 # ]
 # ///
 """
