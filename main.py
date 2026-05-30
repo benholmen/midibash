@@ -3,17 +3,28 @@ from gpiozero import Button
 import mido
 from mido import MidiFile
 from pathlib import Path
+from PIL import Image
+import pigpio
+from escpos.printer import Serial as ReceiptSerial
+import serial as ScannerSerial
+import signal
 import sys
-import serial
+import threading
 import time
 
 # https://learn.adafruit.com/adafruit-i2c-to-8-channel-solenoid-driver/circuitpython-and-python
 import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
-SCANNER_PORT = '/dev/ttyACM0'
-INSTRUMENT_NAME = 'LPK25 mk2'
-BUTTON_NOTE = 49    # C# above C3
+SCANNER_PORT = "/dev/ttyACM0"
+INSTRUMENT_NAME = "LPK25 mk2"
+PRINTER_PORT = "/dev/ttyUSB0"
+PRINTER_BAUD = 115200
+PRINTER_MAX_WIDTH = 512
+PRINTER_MAX_HEIGHT = 400  # vertical chunk size
+BUTTON_GPIO = 17  # BCM pin wired button-to-GND
+BUTTON_DEBOUNCE_TIME = 50_000  # µsec
+BUTTON_COOLDOWN_TIME = 5.0  # sec
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 pin_mapping = {
@@ -35,39 +46,34 @@ def main():
     global recording
 
     print("\033[90m", "initializing button", "\033[0m")
-    init_button()
+    button_handler = init_button()
+
     print("\033[90m", "initializing keyboard", "\033[0m")
     init_keyboard()
+
     print("\033[90m", "initializing pins", "\033[0m")
     init_pins()
 
     print("\033[90m", "initializing barcode scanner", "\033[0m")
-    scanner_serial = serial.Serial(SCANNER_PORT, timeout=0)
-    scanner_buffer = ""
+    init_barcode_scanner()
 
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
+    def shutdown(sig, frame):
+        print("\nShutting down.")
+        button_handler.cancel()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     try:
         while True:
-            # check for serial messages (barcode scans)
-            # todo: put this in a separate function
-            if scanner_serial.in_waiting > 0:
-                data = scanner_serial.read(scanner_serial.in_waiting).decode('utf-8')
-
-                for char in data:
-                    if char == '\n' or char == '\r':
-                        if scanner_buffer:
-                            # todo: play a midi file if the scanner got something
-                            print("\t\033[90m", f"scanned {scanner_buffer}", "\033[0m")
-                            scanner_buffer = ""
-                    else:
-                        scanner_buffer += char
-
             # turn off any solenoids that have expired
             turn_off_solenoids()
 
-            # sleep
-            time.sleep(0.0005)
+            # sleep for 1 ms
+            time.sleep(0.001)
 
     except KeyboardInterrupt:
         print("\n\033[1;31mCleaning up\033[0m")
@@ -75,32 +81,24 @@ def main():
         if recording:
             end_recording()
 
-        turn_off_solenoids(force = True)
+        turn_off_solenoids(force=True)
+
 
 def handle_midi_msg(msg) -> None:
     global BUTTON_NOTE, recording
 
-    # todo: refactor away from the BUTTON_NOTE
+    # todo: refactor away from the BUTTON_NOTE in favor of an actual button
     if recording and msg.note is not BUTTON_NOTE:
         record_note(msg)
 
-    if msg.type == 'note_on':
+    if msg.type == "note_on":
         print("\t\033[90m", msg, "\033[0m")
-
-        # todo: refactor away from the BUTTON_NOTE
-        if msg.note is BUTTON_NOTE:
-            # use this note as a button for now
-            print("\033[1;31mBUTTON!!\033[0m", recording)
-
-            if recording:
-                end_recording()
-            else:
-                start_recording()
 
         pin = pin_for(msg.note)
 
-        if (pin is not None):
+        if pin is not None:
             start_note(msg.note, duration_for(msg.velocity))
+
 
 def pin_for(note: int) -> int:
     if note in pin_mapping:
@@ -108,20 +106,31 @@ def pin_for(note: int) -> int:
 
     return None
 
+
 def duration_for(velocity: int) -> int:
-    # velocity is 1-128; should clamp it to some set range
-    # this will be the duration we activate the solenoid
+    # velocity is 1-128; we clamp it a sensible range
+    # this will be the duration we activate the solenoid, in milliseconds
     min = 7
     max = 30
 
     return round(velocity / 128 * (max - min)) + min
 
+
 def start_note(note: int, duration_ms: int) -> None:
     global active_solenoids, pins
+
+    # todo: refactor this so we can limit the number of active solenoids at once, e.g.
+    # active_solenoids[] = {
+    #     note: note,
+    #     end_at: time.time() + duration_ms / 1000
+    # }
+    # if count(active_solenoids > limit):
+    #     unset the oldest note
 
     active_solenoids[note] = time.time() + duration_ms / 1000
 
     pins[note].value = True
+
 
 def end_note(note: int) -> None:
     global active_solenoids, pins
@@ -129,11 +138,16 @@ def end_note(note: int) -> None:
     del active_solenoids[note]
     pins[note].value = False
 
+
 def init_button() -> None:
-    global button_pin
-    # button_record = Button(button_pin)
-    # button_record.when_pressed = start_recording
-    # button_record.when_pressed = end_recording
+    pi = pigpio.pi()
+
+    if not pi.connected:
+        print("Cannot connect to pigpiod — run: sudo pigpiod", file=sys.stderr)
+        sys.exit(1)
+
+    return ButtonHandler(pi, toggle_recording)
+
 
 def init_keyboard() -> None:
     global INSTRUMENT_NAME
@@ -147,9 +161,14 @@ def init_keyboard() -> None:
                 print(f"Using {input_name}")
 
         if midi_port is None:
-            sys.stdout.write(f" Available inputs: " + ", ".join(mido.get_input_names()).ljust(40, " ") + "\r")
+            sys.stdout.write(
+                f" Available inputs: "
+                + ", ".join(mido.get_input_names()).ljust(40, " ")
+                + "\r"
+            )
 
             time.sleep(0.5)
+
 
 def init_pins() -> None:
     global pin_mapping, pins
@@ -168,6 +187,38 @@ def init_pins() -> None:
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
 
+
+def init_barcode_scanner() -> None:
+    scanner_serial = ScannerSerial.Serial(SCANNER_PORT, timeout=0)
+    thread = threading.Thread(
+        target=barcode_scanner_thread, args=(scanner_serial), daemon=True
+    )
+    thread.start()
+
+
+def barcode_scanner_thread(serial) -> None:
+    buffer = ""
+
+    while True:
+        try:
+            if serial.in_waiting > 0:
+                data = serial.read(serial.in_waiting).decode("utf-8")
+
+                for char in data:
+                    if char == "\n" or char == "\r":
+                        if buffer:
+                            # todo: play a midi file if the scanner got something
+                            print("\t\033[90m", f"scanned {buffer}", "\033[0m")
+                            buffer = ""
+                    else:
+                        buffer += char
+
+            time.sleep(0.01)
+        except Exception as e:
+            print(f"Scanner thread error: {e}")
+            time.sleep(1)
+
+
 def turn_off_solenoids(force: bool = False) -> None:
     global active_solenoids
 
@@ -176,14 +227,27 @@ def turn_off_solenoids(force: bool = False) -> None:
         if force or now >= active_solenoids[note]:
             end_note(note)
 
+
+def toggle_recording():
+    global recording
+
+    if recording:
+        print("\033[1;31m⏹︎ done recording\033[0m", recording)
+        end_recording()
+    else:
+        print("\033[1;31m⏺︎ recording...\033[0m", recording)
+        start_recording()
+
+
 def start_recording():
     global midi_file, midi_track, recording, last_time
 
     print("Starting recording")
     midi_file = MidiFile()
-    midi_track = midi_file.add_track('Ben')
+    midi_track = midi_file.add_track("Ben")
     recording = True
     last_time = time.time()
+
 
 def record_note(msg) -> None:
     global last_time, midi_file, midi_track
@@ -194,18 +258,46 @@ def record_note(msg) -> None:
     last_time = now
     midi_track.append(msg)
 
+
 def end_recording():
     global midi_file, midi_track, recording
 
     print("Ending recording")
     if len(midi_track) > 0:
-        Path('recordings').mkdir(exist_ok=True)
-        midi_file.save('recordings/output.mid')
+        Path("recordings").mkdir(exist_ok=True)
+        midi_file.save("recordings/output.mid")
     else:
         print("Track is empty, skipping.")
 
     recording = False
 
+class ButtonHandler:
+    global BUTTON_COOLDOWN_TIME, BUTTON_DEBOUNCE_TIME, BUTTON_GPIO
+
+    def __init__(self, pi, callback):
+        self.pi = pi
+        self.callback = callback
+        self._last_press = 0.0
+
+        pi.set_mode(BUTTON_GPIO, pigpio.INPUT)
+        pi.set_pull_up_down(BUTTON_GPIO, pigpio.PUD_UP)
+        pi.set_glitch_filter(BUTTON_GPIO, BUTTON_DEBOUNCE_TIME)
+
+        self._cb = pi.callback(BUTTON_GPIO, pigpio.FALLING_EDGE, self._on_press)
+
+    def _on_press(self, gpio, level, tick):
+        now = time.monotonic()
+        if self._busy or (now - self._last_press) < BUTTON_COOLDOWN_TIME:
+            remaining_seconds = BUTTON_COOLDOWN_TIME - (now - self._last_press)
+            print(f"[WARN] In cooldown period, {remaining_seconds:.1f}s remain")
+            return
+        self._last_press = now
+
+        self.callback()
+
+    def cancel(self):
+        self._cb.cancel()
+        self.pi.stop()
 
 if __name__ == "__main__":
     main()

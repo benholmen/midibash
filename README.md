@@ -1,1 +1,33 @@
-# Solenoid Basher
+# Half Moon Solenoid Crashers LTD
+
+## main.py
+- Listens for MIDI events
+- Responds to button events
+    - When the recording button is pressed, it toggles recording on and off
+- When entering recording mode:
+    - Stop any active playback
+    - initialize the receipt printing:
+        - generate the background image that is a barcode
+    - note: this entering should be de-bounced, it will be a physical toggle switch.
+- When recording mode is on:
+    - save MIDI events to a MIDI file
+    - ignore barcode scanner inputs
+    - print segments of the receipt
+- When exiting recording mode:
+    - finalize the MIDI file and save to disk
+    - finalize the receipt printing
+    - note: this exiting should be de-bounced, it will be a physical toggle switch.
+- When recording mode is off:
+    - Just turn on and of the solenoids as appropriate
+- Responds to barcode scanner inputs
+    - When a barcode is detected:
+        - Verify that the midi file exists for that barcode
+        - Enter playback mode
+- When playback mode is on
+    - Turn solenoids on and off as appropriate to play the music
+- When the playback finishes
+    - Exit playback mode
+- Ambient mode:
+    - When no MIDI events have been detected for a minute and playback mode is off:
+        - Choose a random MIDI file and play it
+- Turns on solenoids and turns off solenoids with very tight timing requirements
