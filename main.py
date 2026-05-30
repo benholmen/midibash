@@ -38,13 +38,12 @@ active_solenoids = {}
 pins = {}
 button_record = None
 recording = False
+midi_port = None
 midi_file = None
 midi_track = None
 last_time = None
 
 def main():
-    global recording
-
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
 
@@ -62,6 +61,7 @@ def main():
     def shutdown(sig, frame):
         print("\nShutting down.")
         button_handler.cancel()
+        end_recording()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
@@ -85,10 +85,11 @@ def main():
 
 
 def handle_midi_msg(msg) -> None:
-    global BUTTON_NOTE, recording
+    global recording
 
-    # todo: refactor away from the BUTTON_NOTE in favor of an actual button
-    if recording and msg.note is not BUTTON_NOTE:
+    print("\t\033[90m", msg, "\033[0m")
+
+    if recording:
         record_note(msg)
 
     if msg.type == "note_on":
@@ -150,13 +151,12 @@ def init_button() -> None:
 
 
 def init_keyboard() -> None:
-    global INSTRUMENT_NAME
+    global INSTRUMENT_NAME, midi_port
 
-    midi_port = None
     while midi_port is None:
         for input_name in mido.get_input_names():
             if INSTRUMENT_NAME in input_name:
-                midi_port = mido.open_input(input_name, handle_midi_msg)
+                midi_port = mido.open_input(input_name, callback=handle_midi_msg)
 
                 print(f"Using {input_name}")
 
@@ -191,7 +191,7 @@ def init_pins() -> None:
 def init_barcode_scanner() -> None:
     scanner_serial = ScannerSerial.Serial(SCANNER_PORT, timeout=0)
     thread = threading.Thread(
-        target=barcode_scanner_thread, args=(scanner_serial), daemon=True
+        target=barcode_scanner_thread, args=(scanner_serial,), daemon=True
     )
     thread.start()
 
@@ -232,17 +232,15 @@ def toggle_recording():
     global recording
 
     if recording:
-        print("\033[1;31m⏹︎ done recording\033[0m", recording)
         end_recording()
     else:
-        print("\033[1;31m⏺︎ recording...\033[0m", recording)
         start_recording()
 
 
 def start_recording():
     global midi_file, midi_track, recording, last_time
 
-    print("Starting recording")
+    print("\033[1;31m⏺︎ recording...\033[0m")
     midi_file = MidiFile()
     midi_track = midi_file.add_track("Ben")
     recording = True
@@ -262,7 +260,7 @@ def record_note(msg) -> None:
 def end_recording():
     global midi_file, midi_track, recording
 
-    print("Ending recording")
+    print("\033[1;31m⏹︎ done recording\033[0m")
     if len(midi_track) > 0:
         Path("recordings").mkdir(exist_ok=True)
         midi_file.save("recordings/output.mid")
@@ -287,7 +285,7 @@ class ButtonHandler:
 
     def _on_press(self, gpio, level, tick):
         now = time.monotonic()
-        if self._busy or (now - self._last_press) < BUTTON_COOLDOWN_TIME:
+        if (now - self._last_press) < BUTTON_COOLDOWN_TIME:
             remaining_seconds = BUTTON_COOLDOWN_TIME - (now - self._last_press)
             print(f"[WARN] In cooldown period, {remaining_seconds:.1f}s remain")
             return
