@@ -4,35 +4,31 @@
 # dependencies = [
 #   "python-escpos>=3.0",
 #   "pillow>=12.1.0",
-#   "pyusb>=1.0",
 # ]
 # ///
 """
-Print an image full-width on the Epson M253A receipt printer and auto-cut.
+Print an image full-width on the Epson TM-H6000IV receipt printer and auto-cut.
 
 Usage:
-    python receipt-wip.py <image_file>
+    uv run receipt-wip.py <image_file>
 
-Before first run, find the printer's USB product ID:
-    lsusb | grep -i epson
-Then update PRINTER_PRODUCT_ID below.
+Connects via serial (USB-to-RS232 adapter). Printer baud rate set via DIP Switch 1.
 """
 
 import argparse
 import sys
 from PIL import Image
-from escpos.printer import Usb
+from escpos.printer import Serial
 from escpos import constants
 
-PRINTER_WIDTH = 576       # dots — 80mm paper at 203 DPI
-EPSON_VENDOR_ID = 0x04B8  # Epson USB vendor ID (constant across models)
-PRINTER_PRODUCT_ID = 0x0202  # UB-U05 USB interface card
+PRINTER_WIDTH = 576  # dots — 80mm paper at 203 DPI
+SERIAL_PORT = "/dev/ttyUSB0"
+BAUD_RATE = 9600
 
 
-def check_paper(printer: Usb) -> None:
+def check_paper(printer) -> None:
     # DLE EOT 4 — paper roll sensor status
     # Bits 2-3: 00 = paper OK, 11 = paper near end
-    # TODO: verify bit mask against actual printer response
     try:
         status = printer.query_status(constants.RT_STATUS_PAPER)
         paper_low = bool(status[0] & 0x0C)
@@ -53,7 +49,7 @@ def load_and_scale(path: str) -> Image.Image:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Print an image full-width on the Epson M253A"
+        description="Print an image full-width on the Epson TM-H6000IV"
     )
     parser.add_argument("image", help="Path to the image file to print")
     args = parser.parse_args()
@@ -61,14 +57,9 @@ def main():
     img = load_and_scale(args.image)
 
     try:
-        printer = Usb(EPSON_VENDOR_ID, PRINTER_PRODUCT_ID)
+        printer = Serial(SERIAL_PORT, baudrate=BAUD_RATE)
     except Exception as e:
         print(f"Could not connect to printer: {e}", file=sys.stderr)
-        print(
-            "Check that the printer is on, plugged in via USB, and that "
-            "PRINTER_PRODUCT_ID matches `lsusb` output.",
-            file=sys.stderr,
-        )
         sys.exit(1)
 
     check_paper(printer)
