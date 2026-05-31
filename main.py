@@ -3,14 +3,14 @@ from gpiozero import Button
 import mido
 from mido import MidiFile
 from pathlib import Path
-from PIL import Image
+import os
 import pigpio
-from escpos.printer import Serial as ReceiptSerial
 import serial as ScannerSerial
 import signal
 import sys
 import threading
 import time
+import Receipt
 
 # https://learn.adafruit.com/adafruit-i2c-to-8-channel-solenoid-driver/circuitpython-and-python
 import board
@@ -25,6 +25,7 @@ PRINTER_MAX_HEIGHT = 400  # vertical chunk size
 BUTTON_GPIO = 17  # BCM pin wired button-to-GND
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 5.0  # sec
+RECORDINGS_PATH = "recordings/"
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 pin_mapping = {
@@ -44,6 +45,14 @@ midi_track = None
 last_time = None
 
 def main():
+    start = time.perf_counter()
+    receipt = Receipt.Receipt(next_id())
+    end = time.perf_counter()
+    elapsed = (end - start) * 1000 # Convert to milliseconds
+    print(f"Created: {elapsed:.3f} ms")
+
+    id = next_id()
+
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
 
@@ -58,25 +67,20 @@ def main():
 
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
-    def shutdown(sig, frame):
-        print("\nShutting down.")
-        button_handler.cancel()
-        end_recording()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
-
     try:
         while True:
             # turn off any solenoids that have expired
             turn_off_solenoids()
+
+            advance_receipt()
 
             # sleep for 1 ms
             time.sleep(0.001)
 
     except KeyboardInterrupt:
         print("\n\033[1;31mCleaning up\033[0m")
+
+        button_handler.cancel()
 
         if recording:
             end_recording()
@@ -268,6 +272,34 @@ def end_recording():
         print("Track is empty, skipping.")
 
     recording = False
+
+def start_receipt() -> None:
+    # todo: print the first chunk of the receipt with no notes
+    # todo: thread this if possible
+    return None
+
+def advance_receipt() -> None:
+    # if recording, and we have advanced the correct amount of time, print a chunk of receipt
+    # todo: thread this if possible
+    return None
+
+def finish_receipt() -> None:
+    # todo: print the remaining part of the receipt
+    # todo: thread this if possible
+    # todo: generate the NEXT barcode template
+    return None
+
+def next_id(default=1000):
+    global RECORDINGS_PATH
+
+    try:
+        return max(
+            int(f.name[:-4])
+            for f in os.scandir(RECORDINGS_PATH)
+            if f.is_file() and f.name.endswith(".mid") and f.name[:-4].isdigit()
+        ) + 1
+    except ValueError:
+        return default
 
 class ButtonHandler:
     global BUTTON_COOLDOWN_TIME, BUTTON_DEBOUNCE_TIME, BUTTON_GPIO
