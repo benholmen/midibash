@@ -15,10 +15,10 @@ try:
     print(f"Turning relay on (Pin {RELAY_PIN})...")
     # Set pin as output and turn it ON (Logic High)
     pi.write(RELAY_PIN, 1)
-    
+
     # Wait for 5 seconds
     time.sleep(5)
-    
+
     print("Turning relay off...")
     # Turn it OFF (Logic Low)
     pi.write(RELAY_PIN, 0)

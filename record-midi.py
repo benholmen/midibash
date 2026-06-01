@@ -5,8 +5,8 @@ from pathlib import Path
 import sys
 import time
 
-instrument_name = 'LPK25 mk2'
-button_note = 61    # C# above C4
+instrument_name = "LPK25 mk2"
+button_note = 61  # C# above C4
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 pin_mapping = {
@@ -25,13 +25,14 @@ midi_track = None
 last_time = None
 midi_port = None
 
+
 def main():
     global button_note, midi_port
-    
+
     init_button()
 
     init_keyboard()
-    
+
     # init_pins()
 
     print("\033[90m", "waiting for messages", "\033[0m")
@@ -47,7 +48,7 @@ def main():
             if msg and recording and msg.note is not button_note:
                 record_note(msg)
 
-            if msg and msg.type == 'note_on':
+            if msg and msg.type == "note_on":
                 print("\t\033[90m", msg, "\033[0m")
 
                 # todo: refactor away from the button_note
@@ -62,11 +63,11 @@ def main():
 
                 pin = pin_for(msg.note)
 
-                if (pin):
+                if pin:
                     start_note(pin, duration_for(msg.velocity))
 
             turn_off_solenoids()
-            
+
             # sleep
             time.sleep(0.0005)
 
@@ -76,10 +77,12 @@ def main():
         if recording:
             end_recording()
 
-        turn_off_solenoids(force = True)
+        turn_off_solenoids(force=True)
+
 
 def pin_for(note: int) -> int:
     return pins.get(note)
+
 
 def duration_for(velocity: int) -> int:
     # velocity is 1-128; should clamp it to some set range
@@ -89,17 +92,20 @@ def duration_for(velocity: int) -> int:
 
     return round(velocity / 128 * (max - min)) + min
 
+
 def start_note(pin: int, duration_ms: int) -> None:
     global active_solenoids, pins
-    
+
     active_solenoids[pin] = now + duration_ms / 1000
     pins[pin].value = True
 
+
 def end_note(pin: int) -> None:
     global active_solenoids, pins
-    
+
     del active_solenoids[pin]
     pins[pin].value = False
+
 
 def init_button() -> None:
     global button_pin
@@ -107,20 +113,26 @@ def init_button() -> None:
     # button_record.when_pressed = start_recording
     # button_record.when_pressed = end_recording
 
+
 def init_keyboard() -> None:
     global instrument_name, midi_port
-    
+
     while midi_port is None:
         for input_name in mido.get_input_names():
             if instrument_name in input_name:
                 midi_port = mido.open_input(input_name)
 
-                sys.stdout.write(f"\nUsing {input_name}")        
+                sys.stdout.write(f"\nUsing {input_name}")
 
         if midi_port is None:
-            sys.stdout.write(f" Available inputs: " + ", ".join(mido.get_input_names()).ljust(40, " ") + "\r")
-                
+            sys.stdout.write(
+                f" Available inputs: "
+                + ", ".join(mido.get_input_names()).ljust(40, " ")
+                + "\r"
+            )
+
             time.sleep(0.5)
+
 
 def init_pins() -> None:
     global pin_mapping, pins
@@ -132,45 +144,49 @@ def init_pins() -> None:
     except Exception as e:
         print(f"Could not connect to MCP23017: {e}")
         exit()
-    
+
     for midi_note, pin in pin_mapping.items():
         i2c_pin = mcp.get_pin(pin)
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
 
+
 def turn_off_solenoids(force: bool = False) -> None:
     global active_solenoids
-    
+
     now = time.time()
     for pin in list(active_solenoids.keys()):
         if force or now >= active_solenoids[pin]:
             end_note(pin)
+
 
 def start_recording():
     global midi_file, midi_track, recording, last_time
 
     print("Starting recording")
     midi_file = MidiFile()
-    midi_track = midi_file.add_track('Ben')
+    midi_track = midi_file.add_track("Ben")
     recording = True
     last_time = time.time()
 
+
 def record_note(msg) -> None:
     global last_time, midi_file, midi_track
-    
+
     now = time.time()
-    
+
     msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
     last_time = now
     midi_track.append(msg)
+
 
 def end_recording():
     global midi_file, midi_track, recording
 
     print("Ending recording")
     if len(midi_track) > 0:
-        Path('recordings').mkdir(exist_ok=True)
-        midi_file.save('recordings/output.mid')
+        Path("recordings").mkdir(exist_ok=True)
+        midi_file.save("recordings/output.mid")
     else:
         print("Track is empty, skipping.")
 

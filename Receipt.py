@@ -7,20 +7,31 @@ import time
 import numpy
 from escpos.printer import Serial as ReceiptSerial
 
+
 class Receipt:
+    # 203 dpi / 8 dpmm
 
     mid_radius = 30
     min_note = 48
     max_note = 84
     width = 576
-    height = 2208
-    notes = []
+    height = 2400
+    chunk_height = 200
+    x_padding = mid_radius
+    y_padding = chunk_height
+    mm_per_second = height / 60
+
     _barcode = None
+    _image = None
+    _draw = None
 
     def __init__(self, text):
         self.text = text
 
         self._generate_barcode(str(text))
+
+        self._image = self._barcode.copy()
+        self._draw = ImageDraw.Draw(self._image)
 
     def _generate_barcode(self, text) -> None:
         barcode_options = {
@@ -73,7 +84,6 @@ class Receipt:
             trapezoid.transpose(Image.FLIP_TOP_BOTTOM),
         )
 
-
     def _find_coeffs(self, pa, pb):
         matrix = []
         for p1, p2 in zip(pa, pb):
@@ -86,5 +96,39 @@ class Receipt:
         res = numpy.dot(numpy.linalg.inv(A.T * A) * A.T, B)
         return numpy.array(res).reshape(8)
 
+    def expand(self):
+        expanded = Image.new("RGB", (self.width, self.height + self._barcode.height), (255, 255, 255))
+        expanded.paste(self._image, (0, 0))
+        expanded.paste(self._barcode, (0, self.height))
+
+        self._image = expanded
+        self.height = expanded.height
+        self._draw = ImageDraw.Draw(self._image) # todo: is this necessary?
+
+    def add_note(self, note):
+        x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
+            self.width - self.x_padding * 2
+        ) + self.x_padding
+        y = note.time * self.mm_per_second + self.y_padding
+
+        if y > self.height:
+            self.expand()
+
+        radius = (note.velocity / 127) * self.mid_radius
+        self._draw.circle((x, y), radius, (255, 255, 255), (0, 0, 0), 3)
+
+    def chunk(self, n):
+        try:
+            box = (
+                0,
+                n * self.chunk_height,
+                self.width,
+                (n + 1) * self.chunk_height
+            )
+
+            return self._image.crop(box)
+        except ValueError:
+            print("Could not return crop outside of bounds")
+
     def save(self) -> None:
-        self._barcode.save("receipts/no-notes.png")
+        self._image.save(f"receipts/{self.text}.png")

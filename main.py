@@ -5,6 +5,7 @@ from mido import MidiFile
 from pathlib import Path
 import os
 import pigpio
+import random
 import serial as ScannerSerial
 import signal
 import sys
@@ -43,15 +44,36 @@ midi_port = None
 midi_file = None
 midi_track = None
 last_time = None
+receipt = None
+
 
 def main():
+    global receipt
+
+    # tmp: init the receipt and save it
     start = time.perf_counter()
     receipt = Receipt.Receipt(next_id())
-    end = time.perf_counter()
-    elapsed = (end - start) * 1000 # Convert to milliseconds
-    print(f"Created: {elapsed:.3f} ms")
+    # receipt.save()
 
-    id = next_id()
+    elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
+    print(f"init:   {elapsed:.3f} ms")
+
+    for x in range(10):
+        receipt.add_note(
+            mido.Message('note_on', note=random.randint(48, 84), velocity=random.randint(20, 127), time=x * 7)
+        )
+        elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
+        print(f"note {x}: {elapsed:.3f} ms")
+    receipt.save()
+
+    for n in range(0, 2):
+        chunk = receipt.chunk(n)
+        chunk.save(f"receipts/{n}.png")
+
+    elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
+    print(f"save:   {elapsed:.3f} ms")
+
+    exit(0)
 
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
@@ -248,7 +270,7 @@ def start_recording():
     midi_file = MidiFile()
     midi_track = midi_file.add_track("Ben")
     recording = True
-    last_time = time.time()
+    last_time = None
 
 
 def record_note(msg) -> None:
@@ -256,9 +278,17 @@ def record_note(msg) -> None:
 
     now = time.time()
 
+    # The very first note should be at time 0
+    # eliminate delay between recording start
+    # and first key press
+    if last_time is None:
+        last_time = now
+
     msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
     last_time = now
     midi_track.append(msg)
+
+    receipt.add_note(msg)
 
 
 def end_recording():
@@ -273,15 +303,18 @@ def end_recording():
 
     recording = False
 
+
 def start_receipt() -> None:
     # todo: print the first chunk of the receipt with no notes
     # todo: thread this if possible
     return None
 
+
 def advance_receipt() -> None:
     # if recording, and we have advanced the correct amount of time, print a chunk of receipt
     # todo: thread this if possible
     return None
+
 
 def finish_receipt() -> None:
     # todo: print the remaining part of the receipt
@@ -289,17 +322,22 @@ def finish_receipt() -> None:
     # todo: generate the NEXT barcode template
     return None
 
+
 def next_id(default=1000):
     global RECORDINGS_PATH
 
     try:
-        return max(
-            int(f.name[:-4])
-            for f in os.scandir(RECORDINGS_PATH)
-            if f.is_file() and f.name.endswith(".mid") and f.name[:-4].isdigit()
-        ) + 1
+        return (
+            max(
+                int(f.name[:-4])
+                for f in os.scandir(RECORDINGS_PATH)
+                if f.is_file() and f.name.endswith(".mid") and f.name[:-4].isdigit()
+            )
+            + 1
+        )
     except ValueError:
         return default
+
 
 class ButtonHandler:
     global BUTTON_COOLDOWN_TIME, BUTTON_DEBOUNCE_TIME, BUTTON_GPIO
@@ -328,6 +366,7 @@ class ButtonHandler:
     def cancel(self):
         self._cb.cancel()
         self.pi.stop()
+
 
 if __name__ == "__main__":
     main()

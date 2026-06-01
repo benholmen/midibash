@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import time
 
+
 def main():
     instrument_name = "LPK25 mk2"
     button_note = 36
@@ -16,7 +17,7 @@ def main():
     midi_track = None
     last_time = None
     midi_port = None
-    
+
     def start_playing():
         nonlocal pending_messages, playing
         pending_messages = []
@@ -177,6 +178,7 @@ def track_length(path: str) -> int:
             length = 0
 
     return length
+
 
 if __name__ == "__main__":
     main()

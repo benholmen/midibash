@@ -10,9 +10,7 @@ import time
 import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
-pins_numbers = [
-    0, 2, 4, 6, 8, 10, 12, 14
-]
+pins_numbers = [0, 2, 4, 6, 8, 10, 12, 14]
 
 pins = {}
 
@@ -32,7 +30,6 @@ notes = {
     61: (mcp0, 1),
     62: (mcp0, 2),
     63: (mcp0, 3),
-    
     # 64: (mcp1, 0),
     # 65: (mcp1, 2),
     # 66: (mcp1, 4),
@@ -43,7 +40,7 @@ for midi_key, physical_location in notes.items():
     mcp, pin = physical_location
     i2c_pin = mcp.get_pin(pin)
     i2c_pin.switch_to_output(value=False)
-    pins[midi_key] = (i2c_pin)
+    pins[midi_key] = i2c_pin
 
 while True:
     n = 0

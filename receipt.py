@@ -108,6 +108,7 @@ def main():
 
     receipt.save("receipts/test.png")
 
+
 def find_coeffs(pa, pb):
     matrix = []
     for p1, p2 in zip(pa, pb):
@@ -119,6 +120,7 @@ def find_coeffs(pa, pb):
 
     res = numpy.dot(numpy.linalg.inv(A.T * A) * A.T, B)
     return numpy.array(res).reshape(8)
+
 
 if __name__ == "__main__":
     main()
