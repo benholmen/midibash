@@ -43,6 +43,13 @@ class Receipt:
 
     def finish(self) -> None:
         # finish any outstanding chunks
+        while (self._next_chunk + 1) * self.chunk_height <= self.height:
+            chunk = self._render_chunk(self._next_chunk)
+            chunk.save(f"receipts/chunk-{self._next_chunk}.png")
+
+            self._next_chunk += 1
+
+        # save the PNG (not necessary when printing)
         self.save()
 
     def add_note(self, note) -> None:
@@ -51,7 +58,7 @@ class Receipt:
         self.pending_notes.append(note)
 
         x, y = self._coords(note)
-        if y > self._next_chunk * self.chunk_height + self.mid_radius:
+        if y > (self._next_chunk + 1) * self.chunk_height + self.mid_radius:
             # todo: thread the chunking + printing
             chunk = self._render_chunk(self._next_chunk)
             print(f"> saved chunk-{self._next_chunk}.png")
@@ -121,7 +128,9 @@ class Receipt:
         return numpy.array(res).reshape(8)
 
     def expand(self) -> None:
-        expanded = Image.new("RGB", (self.width, self.height + self._barcode.height), (255, 255, 255))
+        expanded = Image.new(
+            "RGB", (self.width, self.height + self._barcode.height), (255, 255, 255)
+        )
         expanded.paste(self._image, (0, 0))
         expanded.paste(self._barcode, (0, self.height))
 
@@ -147,12 +156,7 @@ class Receipt:
             self.draw_note(note)
 
         try:
-            box = (
-                0,
-                n * self.chunk_height,
-                self.width,
-                (n + 1) * self.chunk_height
-            )
+            box = (0, n * self.chunk_height, self.width, (n + 1) * self.chunk_height)
 
             return self._image.crop(box)
         except ValueError:
