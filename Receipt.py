@@ -21,6 +21,9 @@ class Receipt:
     y_padding = chunk_height
     mm_per_second = height / 60
 
+    notes = []
+    pending_notes = []
+    _next_chunk = 1
     _barcode = None
     _image = None
     _draw = None
@@ -32,6 +35,29 @@ class Receipt:
 
         self._image = self._barcode.copy()
         self._draw = ImageDraw.Draw(self._image)
+
+    def start(self):
+        # print the first chunk
+        chunk = self._render_chunk(0)
+        chunk.save("receipts/chunk-0.png")
+
+    def finish(self) -> None:
+        # finish any outstanding chunks
+        self.save()
+
+    def add_note(self, note) -> None:
+        print(f"+ added {note.note} at {note.time}ms")
+        self.notes.append(note)
+        self.pending_notes.append(note)
+
+        x, y = self._coords(note)
+        if y > self._next_chunk * self.chunk_height + self.mid_radius:
+            # todo: thread the chunking + printing
+            chunk = self._render_chunk(self._next_chunk)
+            print(f"> saved chunk-{self._next_chunk}.png")
+            chunk.save(f"receipts/chunk-{self._next_chunk}.png")
+
+            self._next_chunk += 1
 
     def _generate_barcode(self, text) -> None:
         barcode_options = {
@@ -52,8 +78,6 @@ class Receipt:
         barcode_img = Image.open(buffer).convert("RGBA")
 
         self._barcode = Image.new("RGB", (self.width, self.height), (255, 255, 255))
-
-        draw = ImageDraw.Draw(self._barcode)
 
         # transform a trapezoid of the barcode
         (barcode_width, barcode_height) = barcode_img.size
@@ -84,7 +108,7 @@ class Receipt:
             trapezoid.transpose(Image.FLIP_TOP_BOTTOM),
         )
 
-    def _find_coeffs(self, pa, pb):
+    def _find_coeffs(self, pa, pb) -> numpy.ndarray:
         matrix = []
         for p1, p2 in zip(pa, pb):
             matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
@@ -96,28 +120,32 @@ class Receipt:
         res = numpy.dot(numpy.linalg.inv(A.T * A) * A.T, B)
         return numpy.array(res).reshape(8)
 
-    def expand(self):
+    def expand(self) -> None:
         expanded = Image.new("RGB", (self.width, self.height + self._barcode.height), (255, 255, 255))
         expanded.paste(self._image, (0, 0))
         expanded.paste(self._barcode, (0, self.height))
 
         self._image = expanded
         self.height = expanded.height
-        self._draw = ImageDraw.Draw(self._image) # todo: is this necessary?
+        self._draw = ImageDraw.Draw(self._image)  # todo: is this necessary?
 
-    def add_note(self, note):
-        x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
-            self.width - self.x_padding * 2
-        ) + self.x_padding
-        y = note.time * self.mm_per_second + self.y_padding
+    def draw_note(self, note) -> None:
+        print(f"✒︎ drew {note.note} at {note.time}ms")
+        x, y = self._coords(note)
 
         if y > self.height:
+            print("expanding")
             self.expand()
 
         radius = (note.velocity / 127) * self.mid_radius
         self._draw.circle((x, y), radius, (255, 255, 255), (0, 0, 0), 3)
 
-    def chunk(self, n):
+    def _render_chunk(self, n) -> Image.Image:
+        # draw every note in the queue before returning a chunk
+        while self.pending_notes:
+            note = self.pending_notes.pop()
+            self.draw_note(note)
+
         try:
             box = (
                 0,
@@ -132,3 +160,11 @@ class Receipt:
 
     def save(self) -> None:
         self._image.save(f"receipts/{self.text}.png")
+
+    def _coords(self, note) -> tuple[float, float]:
+        x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
+            self.width - self.x_padding * 2
+        ) + self.x_padding
+        y = note.time * self.mm_per_second + self.y_padding
+
+        return x, y
