@@ -5,7 +5,8 @@ import io
 import numpy
 import queue
 import threading
-from escpos.printer import Serial as ReceiptSerial
+from escpos.printer import Serial
+from escpos import constants
 
 
 class Receipt:
@@ -21,6 +22,8 @@ class Receipt:
     x_padding = mid_radius
     y_padding = chunk_height
     mm_per_second = height / 60
+    serial_port = "/dev/ttyUSB0"
+    baud_rate = 9600
 
     notes = []
     pending_notes = []
@@ -36,6 +39,8 @@ class Receipt:
 
         self._image = self._barcode.copy()
         self._draw = ImageDraw.Draw(self._image)
+
+        self.printer = Serial(self.serial_port, baudrate=self.baud_rate)
 
         self.render_queue = queue.Queue()
 
@@ -55,7 +60,11 @@ class Receipt:
             self._next_chunk += 1
 
         # save the PNG (not necessary when printing)
-        self.save()
+        # todo: don't do this
+        # self.save()
+
+        # todo: cut the paper, but it has to be cut after the last chunk is printed
+        # self.printer.cut()
 
     def add_note(self, note) -> None:
         print(f"+ added {note.note} at {note.time}ms")
@@ -93,13 +102,10 @@ class Receipt:
             "text_distance": 0,
         }
 
-        buffer = io.BytesIO()
         code128 = barcode.get("code128", text, writer=BarcodeWriter())
-        code128.write(buffer, options=barcode_options)
+        barcode_img = code128.render(writer_options=barcode_options).convert("1")
 
-        barcode_img = Image.open(buffer).convert("RGBA")
-
-        self._barcode = Image.new("RGB", (self.width, self.height), (255, 255, 255))
+        self._barcode = Image.new("1", (self.width, self.height), 1)
 
         # transform a trapezoid of the barcode
         (barcode_width, barcode_height) = barcode_img.size
@@ -120,14 +126,14 @@ class Receipt:
             Image.PERSPECTIVE,
             self._find_coeffs(dest_coords, src_coords),
             Image.NEAREST,
+            fillcolor=1,
         )
 
         # leading and trailing trapezoid
-        self._barcode.paste(trapezoid, (0, 0), trapezoid)
+        self._barcode.paste(trapezoid, (0, 0))
         self._barcode.paste(
             trapezoid.transpose(Image.FLIP_TOP_BOTTOM),
             (0, int(self.height / 2), self.width, self.height),
-            trapezoid.transpose(Image.FLIP_TOP_BOTTOM),
         )
 
     def _find_coeffs(self, pa, pb) -> numpy.ndarray:
@@ -143,9 +149,7 @@ class Receipt:
         return numpy.array(res).reshape(8)
 
     def expand(self) -> None:
-        expanded = Image.new(
-            "RGB", (self.width, self.height + self._barcode.height), (255, 255, 255)
-        )
+        expanded = Image.new("1", (self.width, self.height + self._barcode.height), 1)
         expanded.paste(self._image, (0, 0))
         expanded.paste(self._barcode, (0, self.height))
 
@@ -162,9 +166,7 @@ class Receipt:
             self.expand()
 
         radius = (note.velocity / 127) * self.mid_radius
-        self._draw.circle(
-            (x, y), radius, (255, 255, 255), (0, 0, 0), self.border_thickness
-        )
+        self._draw.circle((x, y), radius, 1, 0, self.border_thickness)
 
     def _render_chunk(self, n) -> Image.Image:
         # draw every note in the queue before returning a chunk
@@ -178,7 +180,8 @@ class Receipt:
             chunk = self._image.crop(box)
 
             # todo: print the chunk instead of saving it
-            chunk.save(f"receipts/chunk-{n}.png")
+            # chunk.save(f"receipts/chunk-{n}.png")
+            self.printer.image(chunk, impl="graphics")
         except ValueError:
             print("Could not return crop outside of bounds")
 
