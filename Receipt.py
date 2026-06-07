@@ -2,15 +2,16 @@ from PIL import Image, ImageDraw
 import barcode
 from barcode.writer import ImageWriter as BarcodeWriter
 import io
-import sys
-import time
 import numpy
+import queue
+import threading
 from escpos.printer import Serial as ReceiptSerial
 
 
 class Receipt:
     # 203 dpi / 8 dpmm
 
+    border_thickness = 3
     mid_radius = 30
     min_note = 48
     max_note = 84
@@ -36,16 +37,20 @@ class Receipt:
         self._image = self._barcode.copy()
         self._draw = ImageDraw.Draw(self._image)
 
+        self.render_queue = queue.Queue()
+
+        self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
+        self.worker_thread.start()
+
     def start(self):
         # print the first chunk
-        chunk = self._render_chunk(0)
-        chunk.save("receipts/chunk-0.png")
+        self.render_queue.put(0)
 
     def finish(self) -> None:
         # finish any outstanding chunks
         while (self._next_chunk + 1) * self.chunk_height <= self.height:
-            chunk = self._render_chunk(self._next_chunk)
-            chunk.save(f"receipts/chunk-{self._next_chunk}.png")
+            print(f"queuing {self._next_chunk}")
+            self.render_queue.put(self._next_chunk)
 
             self._next_chunk += 1
 
@@ -58,13 +63,23 @@ class Receipt:
         self.pending_notes.append(note)
 
         x, y = self._coords(note)
-        if y > (self._next_chunk + 1) * self.chunk_height + self.mid_radius:
-            # todo: thread the chunking + printing
-            chunk = self._render_chunk(self._next_chunk)
-            print(f"> saved chunk-{self._next_chunk}.png")
-            chunk.save(f"receipts/chunk-{self._next_chunk}.png")
+        if (
+            y
+            > (self._next_chunk + 1) * self.chunk_height
+            + self.mid_radius
+            + self.border_thickness
+        ):
+            self.render_queue.put(self._next_chunk)
 
             self._next_chunk += 1
+
+    def _process_queue(self):
+        while True:
+            # .get() blocks and waits here until something is added to the queue
+            n = self.render_queue.get()
+            print(f"rendering {n}")
+            self._render_chunk(n)
+            self.render_queue.task_done()
 
     def _generate_barcode(self, text) -> None:
         barcode_options = {
@@ -147,7 +162,9 @@ class Receipt:
             self.expand()
 
         radius = (note.velocity / 127) * self.mid_radius
-        self._draw.circle((x, y), radius, (255, 255, 255), (0, 0, 0), 3)
+        self._draw.circle(
+            (x, y), radius, (255, 255, 255), (0, 0, 0), self.border_thickness
+        )
 
     def _render_chunk(self, n) -> Image.Image:
         # draw every note in the queue before returning a chunk
@@ -158,7 +175,10 @@ class Receipt:
         try:
             box = (0, n * self.chunk_height, self.width, (n + 1) * self.chunk_height)
 
-            return self._image.crop(box)
+            chunk = self._image.crop(box)
+
+            # todo: print the chunk instead of saving it
+            chunk.save(f"receipts/chunk-{n}.png")
         except ValueError:
             print("Could not return crop outside of bounds")
 
