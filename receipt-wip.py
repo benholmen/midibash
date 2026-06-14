@@ -1,19 +1,3 @@
-#!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "python-escpos>=3.0",
-#   "pillow>=12.1.0",
-# ]
-# ///
-"""
-Print an image full-width on the Epson TM-H6000IV receipt printer and auto-cut.
-
-Usage:
-    uv run receipt-wip.py <image_file>
-
-Connects via serial (USB-to-RS232 adapter). Printer baud rate set via DIP Switch 1.
-"""
 
 import argparse
 import sys
@@ -21,9 +5,9 @@ from PIL import Image
 from escpos.printer import Serial
 from escpos import constants
 
-PRINTER_WIDTH = 576  # dots — 80mm paper at 203 DPI
+PRINTER_WIDTH = 512  # dots — 80mm paper at 203 DPI
 SERIAL_PORT = "/dev/ttyUSB0"
-BAUD_RATE = 9600
+BAUD_RATE = 115200
 
 
 def check_paper(printer) -> None:
@@ -41,7 +25,7 @@ def check_paper(printer) -> None:
 
 
 def load_and_scale(path: str) -> Image.Image:
-    img = Image.open(path).convert("RGB")
+    img = Image.open(path).convert("1")
     w, h = img.size
     new_h = int(h * PRINTER_WIDTH / w)
     return img.resize((PRINTER_WIDTH, new_h), Image.LANCZOS)
@@ -63,7 +47,17 @@ def main():
         sys.exit(1)
 
     check_paper(printer)
-    printer.image(img)
+    chunk_height = 200
+    width, height = img.size
+    for top in range(0, height, chunk_height):
+        bottom = min(top + chunk_height, height)
+
+        box = (0, top, width, bottom)
+        chunk = img.crop(box)
+
+        printer.image(chunk)
+
+    #     yield chunk
     printer.cut()
 
 
