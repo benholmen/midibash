@@ -16,14 +16,15 @@ class Receipt:
     mid_radius = 30
     min_note = 48
     max_note = 84
-    width = 576
+    width = 512
     height = 2400
     chunk_height = 200
     x_padding = mid_radius
     y_padding = chunk_height
+    left_padding = 38
     mm_per_second = height / 60
     serial_port = "/dev/ttyUSB0"
-    baud_rate = 9600
+    baud_rate = 115200
 
     notes = []
     pending_notes = []
@@ -31,16 +32,19 @@ class Receipt:
     _barcode = None
     _image = None
     _draw = None
+    _print = None
 
-    def __init__(self, text):
+    def __init__(self, text, print = True):
         self.text = text
+
+        self._print = print
 
         self._generate_barcode(str(text))
 
         self._image = self._barcode.copy()
         self._draw = ImageDraw.Draw(self._image)
 
-        self.printer = Serial(self.serial_port, baudrate=self.baud_rate)
+        self.printer = Serial(self.serial_port, baudrate=self.baud_rate, profile="TM-T88IV")
 
         self.render_queue = queue.Queue()
 
@@ -59,19 +63,23 @@ class Receipt:
 
             self._next_chunk += 1
 
-        # save the PNG (not necessary when printing)
-        # todo: don't do this
-        # self.save()
+        if self._print is False:
+            self.save()
 
         # todo: cut the paper, but it has to be cut after the last chunk is printed
-        # self.printer.cut()
+        # todo: make sure we've sent all the things to the printer before doing this
+        # maybe accomplish it in the render_queue?
+        # if self._print is False:
+            # self.printer.cut()
 
-    def add_note(self, note) -> None:
-        print(f"+ added {note.note} at {note.time}ms")
-        self.notes.append(note)
-        self.pending_notes.append(note)
+    def add_note(self, note, absolute_time) -> None:
+        self.notes.append([absolute_time, note])
+        self.pending_notes.append([absolute_time, note])
 
-        x, y = self._coords(note)
+        x, y = self._coords(note, absolute_time)
+
+        print(f"+ added {note.note} at {absolute_time}s at {x}, {y}")
+
         if (
             y
             > (self._next_chunk + 1) * self.chunk_height
@@ -116,10 +124,10 @@ class Receipt:
             (0, barcode_height),
         ]
         dest_coords = [
-            (self.width / 2.2, 0),
-            (self.width - self.width / 2.2, 0),
+            (self.left_padding + (self.width - self.left_padding) / 2.2, 0),
+            (self.width - (self.width - self.left_padding) / 2.2, 0),
             (self.width, self.height / 2),
-            (0, self.height / 2),
+            (self.left_padding, self.height / 2),
         ]
         trapezoid = barcode_img.transform(
             (self.width, int(self.height / 2)),
@@ -157,9 +165,10 @@ class Receipt:
         self.height = expanded.height
         self._draw = ImageDraw.Draw(self._image)  # todo: is this necessary?
 
-    def draw_note(self, note) -> None:
-        print(f"✒︎ drew {note.note} at {note.time}ms")
-        x, y = self._coords(note)
+    def draw_note(self, note, absolute_time) -> None:
+        x, y = self._coords(note, absolute_time)
+
+        print(f"✒︎ drawing {note.note} at {absolute_time}s at {x}, {y}")
 
         if y > self.height:
             print("expanding")
@@ -171,27 +180,28 @@ class Receipt:
     def _render_chunk(self, n) -> Image.Image:
         # draw every note in the queue before returning a chunk
         while self.pending_notes:
-            note = self.pending_notes.pop()
-            self.draw_note(note)
+            absolute_time, note = self.pending_notes.pop()
+            self.draw_note(note, absolute_time)
 
         try:
             box = (0, n * self.chunk_height, self.width, (n + 1) * self.chunk_height)
 
             chunk = self._image.crop(box)
 
-            # todo: print the chunk instead of saving it
-            # chunk.save(f"receipts/chunk-{n}.png")
-            self.printer.image(chunk, impl="graphics")
+            if self._print is True:
+                self.printer.image(chunk, impl="graphics")
+            else:
+                chunk.save(f"receipts/chunk-{n}.png")
         except ValueError:
             print("Could not return crop outside of bounds")
 
     def save(self) -> None:
         self._image.save(f"receipts/{self.text}.png")
 
-    def _coords(self, note) -> tuple[float, float]:
+    def _coords(self, note, absolute_time) -> tuple[float, float]:
         x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
-            self.width - self.x_padding * 2
-        ) + self.x_padding
-        y = note.time * self.mm_per_second + self.y_padding
+            self.width - self.x_padding * 2 - self.left_padding
+        ) + self.x_padding + self.left_padding
+        y = absolute_time * self.mm_per_second + self.y_padding
 
         return x, y

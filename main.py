@@ -18,12 +18,10 @@ import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
 SCANNER_PORT = "/dev/ttyACM0"
-INSTRUMENT_NAME = "LPK25 mk2"
-PRINTER_PORT = "/dev/ttyUSB0"
-PRINTER_BAUD = 115200
-PRINTER_MAX_WIDTH = 512
-PRINTER_MAX_HEIGHT = 400  # vertical chunk size
+# INSTRUMENT_NAME = "LPK25 mk2"
+INSTRUMENT_NAME = "iRig Keys 2 PRO:iRig Keys 2 PRO MIDI 1 24:0"
 BUTTON_GPIO = 17  # BCM pin wired button-to-GND
+RECORDING_LIGHT_GPIO = 27
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 5.0  # sec
 RECORDINGS_PATH = "recordings/"
@@ -34,6 +32,7 @@ pin_mapping = {
     60: 0,  # C4
     65: 2,  # F4
     69: 3,  # A4
+    71: 4,  # B4
 }
 
 active_solenoids = {}
@@ -43,37 +42,13 @@ recording = False
 midi_port = None
 midi_file = None
 midi_track = None
+start_time = None
 last_time = None
 receipt = None
-
+pi = None
 
 def main():
     global receipt
-
-    # tmp: init the receipt and save it
-    start = time.perf_counter()
-    receipt = Receipt.Receipt(next_id())
-    # receipt.save()
-
-    elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
-    print(f"init:   {elapsed:.3f} ms")
-
-    for x in range(10):
-        receipt.add_note(
-            mido.Message('note_on', note=random.randint(48, 84), velocity=random.randint(20, 127), time=x * 7)
-        )
-        elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
-        print(f"note {x}: {elapsed:.3f} ms")
-    receipt.save()
-
-    for n in range(0, 2):
-        chunk = receipt.chunk(n)
-        chunk.save(f"receipts/{n}.png")
-
-    elapsed = (time.perf_counter() - start) * 1000 # Convert to milliseconds
-    print(f"save:   {elapsed:.3f} ms")
-
-    exit(0)
 
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
@@ -93,8 +68,6 @@ def main():
         while True:
             # turn off any solenoids that have expired
             turn_off_solenoids()
-
-            advance_receipt()
 
             # sleep for 1 ms
             time.sleep(0.001)
@@ -167,11 +140,16 @@ def end_note(note: int) -> None:
 
 
 def init_button() -> None:
+    global pi, RECORDING_LIGHT_GPIO
+
     pi = pigpio.pi()
 
     if not pi.connected:
         print("Cannot connect to pigpiod — run: sudo pigpiod", file=sys.stderr)
         sys.exit(1)
+
+    pi.set_mode(RECORDING_LIGHT_GPIO, pigpio.OUTPUT)
+    pi.write(RECORDING_LIGHT_GPIO, 0)  # turn off y default
 
     return ButtonHandler(pi, toggle_recording)
 
@@ -264,7 +242,9 @@ def toggle_recording():
 
 
 def start_recording():
-    global midi_file, midi_track, recording, last_time
+    global midi_file, midi_track, receipt, recording, last_time
+
+    turn_on_recording_light()
 
     print("\033[1;31m⏺︎ recording...\033[0m")
     midi_file = MidiFile()
@@ -272,9 +252,12 @@ def start_recording():
     recording = True
     last_time = None
 
+    receipt = Receipt.Receipt(next_id(), print = False)
+    receipt.start()
+
 
 def record_note(msg) -> None:
-    global last_time, midi_file, midi_track
+    global last_time, midi_file, midi_track, receipt, start_time
 
     now = time.time()
 
@@ -283,45 +266,30 @@ def record_note(msg) -> None:
     # and first key press
     if last_time is None:
         last_time = now
+        start_time = now
 
     msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
     last_time = now
     midi_track.append(msg)
 
-    receipt.add_note(msg)
+    receipt.add_note(msg, absolute_time=now - start_time)
 
 
 def end_recording():
-    global midi_file, midi_track, recording
+    global midi_file, midi_track, receipt, recording
 
-    print("\033[1;31m⏹︎ done recording\033[0m")
+    turn_off_recording_light()
+
+    print("\033[1;32m⏹︎ done recording\033[0m")
     if len(midi_track) > 0:
         Path("recordings").mkdir(exist_ok=True)
         midi_file.save("recordings/output.mid")
     else:
         print("Track is empty, skipping.")
 
+    receipt.finish()
+
     recording = False
-
-
-def start_receipt() -> None:
-    # todo: print the first chunk of the receipt with no notes
-    # todo: thread this if possible
-    return None
-
-
-def advance_receipt() -> None:
-    # if recording, and we have advanced the correct amount of time, print a chunk of receipt
-    # todo: thread this if possible
-    return None
-
-
-def finish_receipt() -> None:
-    # todo: print the remaining part of the receipt
-    # todo: thread this if possible
-    # todo: generate the NEXT barcode template
-    return None
-
 
 def next_id(default=1000):
     global RECORDINGS_PATH
@@ -338,6 +306,16 @@ def next_id(default=1000):
     except ValueError:
         return default
 
+def turn_on_recording_light() -> None:
+    global RECORDING_LIGHT_GPIO
+
+    pi.write(RECORDING_LIGHT_GPIO, 1)
+
+
+def turn_off_recording_light() -> None:
+    global RECORDING_LIGHT_GPIO
+
+    pi.write(RECORDING_LIGHT_GPIO, 0)
 
 class ButtonHandler:
     global BUTTON_COOLDOWN_TIME, BUTTON_DEBOUNCE_TIME, BUTTON_GPIO
