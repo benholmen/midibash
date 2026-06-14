@@ -18,8 +18,10 @@ import board
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
 SCANNER_PORT = "/dev/ttyACM0"
-# INSTRUMENT_NAME = "LPK25 mk2"
-INSTRUMENT_NAME = "iRig Keys 2 PRO:iRig Keys 2 PRO MIDI 1 24:0"
+KEYBOARD_NAMES = [
+    "iRig Keys 2 PRO",
+    "LPK25 mk2",
+]
 BUTTON_GPIO = 17  # BCM pin wired button-to-GND
 RECORDING_LIGHT_GPIO = 27
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
@@ -155,14 +157,15 @@ def init_button() -> None:
 
 
 def init_keyboard() -> None:
-    global INSTRUMENT_NAME, midi_port
+    global KEYBOARD_NAMES, midi_port
 
     while midi_port is None:
         for input_name in mido.get_input_names():
-            if INSTRUMENT_NAME in input_name:
-                midi_port = mido.open_input(input_name, callback=handle_midi_msg)
+            for keyboard_name in KEYBOARD_NAMES:
+                if keyboard_name in input_name:
+                    midi_port = mido.open_input(input_name, callback=handle_midi_msg)
 
-                print(f"Using {input_name}")
+                    print(f"Using {input_name}")
 
         if midi_port is None:
             sys.stdout.write(

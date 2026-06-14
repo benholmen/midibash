@@ -17,7 +17,7 @@ class Receipt:
     min_note = 48
     max_note = 84
     width = 512
-    height = 2400
+    height = 2400 # 11.8 inches
     chunk_height = 200
     x_padding = mid_radius
     y_padding = chunk_height
