@@ -22,10 +22,11 @@ KEYBOARD_NAMES = [
     "iRig Keys 2 PRO",
     "LPK25 mk2",
 ]
+FEEDER_GPIO = 22
 BUTTON_GPIO = 17  # BCM pin wired button-to-GND
-RECORDING_LIGHT_GPIO = 27
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
-BUTTON_COOLDOWN_TIME = 5.0  # sec
+BUTTON_COOLDOWN_TIME = 1.0  # sec
+RECORDING_LIGHT_GPIO = 27
 RECORDINGS_PATH = "recordings/"
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
@@ -58,11 +59,14 @@ def main():
     print("\033[90m", "initializing keyboard", "\033[0m")
     init_keyboard()
 
+    print("\033[90m", "initializing barcode scanner", "\033[0m")
+    init_barcode_scanner()
+
     print("\033[90m", "initializing pins", "\033[0m")
     init_pins()
 
-    print("\033[90m", "initializing barcode scanner", "\033[0m")
-    init_barcode_scanner()
+    print("\033[90m", "initializing receipt feeder", "\033[0m")
+    init_feeder()
 
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
@@ -142,16 +146,8 @@ def end_note(note: int) -> None:
 
 
 def init_button() -> None:
-    global pi, RECORDING_LIGHT_GPIO
-
-    pi = pigpio.pi()
-
-    if not pi.connected:
-        print("Cannot connect to pigpiod — run: sudo pigpiod", file=sys.stderr)
-        sys.exit(1)
-
     pi.set_mode(RECORDING_LIGHT_GPIO, pigpio.OUTPUT)
-    pi.write(RECORDING_LIGHT_GPIO, 0)  # turn off y default
+    pi.write(RECORDING_LIGHT_GPIO, 0)  # turn off by default
 
     return ButtonHandler(pi, toggle_recording)
 
@@ -194,6 +190,18 @@ def init_pins() -> None:
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
 
+    try:
+        pi = pigpio.pi()
+
+        if not pi.connected:
+            print("Cannot connect to pigpiod — run: sudo pigpiod")
+            exit()
+    except Exception as e:
+        print(f"Cannot initialize GPIO: {e}")
+        exit()
+
+
+
 
 def init_barcode_scanner() -> None:
     scanner_serial = ScannerSerial.Serial(SCANNER_PORT, timeout=0)
@@ -226,9 +234,20 @@ def barcode_scanner_thread(serial) -> None:
             time.sleep(1)
 
 
-def turn_off_solenoids(force: bool = False) -> None:
-    global active_solenoids
+def init_feeder() -> None:
+    pi.set_mode(FEEDER_GPIO, pigpio.OUTPUT)
+    start_feeder()
 
+
+def start_feeder() -> None:
+    pi.write(FEEDER_GPIO, 1)
+
+
+def stop_feeder() -> None:
+    pi.write(FEEDER_GPIO, 0)
+
+
+def turn_off_solenoids(force: bool = False) -> None:
     now = time.time()
     for note in list(active_solenoids.keys()):
         if force or now >= active_solenoids[note]:
