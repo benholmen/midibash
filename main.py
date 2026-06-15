@@ -49,6 +49,8 @@ start_time = None
 last_time = None
 receipt = None
 pi = None
+pending_messages = []
+recording_id = None
 
 def main():
     global receipt
@@ -89,21 +91,20 @@ def main():
         turn_off_solenoids(force=True)
 
 
-def handle_midi_msg(msg) -> None:
-    global recording
 
-    print("\t\033[90m", msg, "\033[0m")
+def handle_midi_msg(message) -> None:
+    print("\t\033[90m", message, "\033[0m")
 
     if recording:
-        record_note(msg)
+        record_note(message)
 
-    if msg.type == "note_on":
-        print("\t\033[90m", msg, "\033[0m")
+    if message.type == "note_on":
+        print("\t\033[90m", message, "\033[0m")
 
-        pin = pin_for(msg.note)
+        pin = pin_for(message.note)
 
         if pin is not None:
-            start_note(msg.note, duration_for(msg.velocity))
+            start_note(message.note, duration_for(message.velocity))
 
 
 def pin_for(note: int) -> int:
@@ -247,6 +248,16 @@ def stop_feeder() -> None:
     pi.write(FEEDER_GPIO, 0)
 
 
+def play_pending_notes -> None:
+    now = time.time()
+    for message in pending_messages:
+
+        pin = pin_for(message.note)
+
+        if pin is not None:
+            start_note(message.note, duration_for(message.velocity))
+
+
 def turn_off_solenoids(force: bool = False) -> None:
     now = time.time()
     for note in list(active_solenoids.keys()):
@@ -264,17 +275,20 @@ def toggle_recording():
 
 
 def start_recording():
-    global midi_file, midi_track, receipt, recording, last_time
+    global midi_file, midi_track, receipt, recording, last_time, recording_id
 
     turn_on_recording_light()
 
     print("\033[1;31m⏺︎ recording...\033[0m")
+
+    recording_id = next_id()
+
     midi_file = MidiFile()
-    midi_track = midi_file.add_track("Ben")
+    midi_track = midi_file.add_track("midibash")
     recording = True
     last_time = None
 
-    receipt = Receipt.Receipt(next_id(), print = False)
+    receipt = Receipt.Receipt(recording_id, print = False)
     receipt.start()
 
 
@@ -290,11 +304,11 @@ def record_note(msg) -> None:
         last_time = now
         start_time = now
 
-    msg.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
+    message.time = int(mido.second2tick(now - last_time, midi_file.ticks_per_beat, 500000))
     last_time = now
-    midi_track.append(msg)
+    midi_track.append(message)
 
-    receipt.add_note(msg, absolute_time=now - start_time)
+    receipt.add_note(message, absolute_time=now - start_time)
 
 
 def end_recording():
@@ -305,7 +319,7 @@ def end_recording():
     print("\033[1;32m⏹︎ done recording\033[0m")
     if len(midi_track) > 0:
         Path("recordings").mkdir(exist_ok=True)
-        midi_file.save("recordings/output.mid")
+        midi_file.save(f"recordings/{recording_id}.mid")
     else:
         print("Track is empty, skipping.")
 
@@ -339,9 +353,31 @@ def turn_off_recording_light() -> None:
 
     pi.write(RECORDING_LIGHT_GPIO, 0)
 
-class ButtonHandler:
-    global BUTTON_COOLDOWN_TIME, BUTTON_DEBOUNCE_TIME, BUTTON_GPIO
+def start_playing(id: str) -> None:
+    global playing
 
+    filename = f"recordings/{id}.mid"
+    if ! Path(filename).is_file():
+        print(f"\033[1;31m⚠️ {filename} does not exist\033[0m")
+        return
+
+    playing = True
+    absolute_time = None
+    for message in MidiFile(filename):
+        if absolute_time:
+            absolute_time += message.time
+        elif not message.is_meta:
+            absolute_time = time.time()
+
+        if message.type == "note_on":
+            message.time = absolute_time
+            pending_messages.append(message)
+
+def end_playing():
+    global playing
+    playing = False
+
+class ButtonHandler:
     def __init__(self, pi, callback):
         self.pi = pi
         self.callback = callback
