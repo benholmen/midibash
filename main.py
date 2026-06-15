@@ -88,6 +88,7 @@ def main():
 
         turn_off_solenoids(force=True)
 
+        pi.stop()
 
 
 def handle_midi_msg(message) -> None:
@@ -216,8 +217,12 @@ def barcode_scanner_thread(serial) -> None:
                 for char in data:
                     if char == "\n" or char == "\r":
                         if buffer:
-                            # todo: play a midi file if the scanner got something
-                            print("\t\033[90m", f"scanned {buffer}", "\033[0m")
+                            if playing:
+                                print("\t\033[90m", f"scanned {buffer} but ignoring", "\033[0m")
+                            else:
+                                print("\t\033[90m", f"scanned {buffer}", "\033[0m")
+                                start_playing(buffer)
+
                             buffer = ""
                     else:
                         buffer += char
@@ -261,8 +266,10 @@ def turn_off_solenoids(force: bool = False) -> None:
 def toggle_recording():
     if recording:
         end_recording()
+        start_feeder()
     else:
         start_recording()
+        stop_feeder()
 
 
 def start_recording():
