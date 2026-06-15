@@ -53,8 +53,6 @@ pending_messages = []
 recording_id = None
 
 def main():
-    global receipt
-
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
 
@@ -124,8 +122,6 @@ def duration_for(velocity: int) -> int:
 
 
 def start_note(note: int, duration_ms: int) -> None:
-    global active_solenoids, pins
-
     # todo: refactor this so we can limit the number of active solenoids at once, e.g.
     # active_solenoids[] = {
     #     note: note,
@@ -140,8 +136,6 @@ def start_note(note: int, duration_ms: int) -> None:
 
 
 def end_note(note: int) -> None:
-    global active_solenoids, pins
-
     del active_solenoids[note]
     pins[note].value = False
 
@@ -154,7 +148,7 @@ def init_button() -> None:
 
 
 def init_keyboard() -> None:
-    global KEYBOARD_NAMES, midi_port
+    global midi_port
 
     while midi_port is None:
         for input_name in mido.get_input_names():
@@ -175,7 +169,7 @@ def init_keyboard() -> None:
 
 
 def init_pins() -> None:
-    global pin_mapping, pins
+    global pi
 
     try:
         i2c = board.I2C()
@@ -214,7 +208,6 @@ def init_barcode_scanner() -> None:
 
 def barcode_scanner_thread(serial) -> None:
     buffer = ""
-
     while True:
         try:
             if serial.in_waiting > 0:
@@ -266,8 +259,6 @@ def turn_off_solenoids(force: bool = False) -> None:
 
 
 def toggle_recording():
-    global recording
-
     if recording:
         end_recording()
     else:
@@ -292,8 +283,8 @@ def start_recording():
     receipt.start()
 
 
-def record_note(msg) -> None:
-    global last_time, midi_file, midi_track, receipt, start_time
+def record_note(message) -> None:
+    global last_time, start_time
 
     now = time.time()
 
@@ -312,7 +303,7 @@ def record_note(msg) -> None:
 
 
 def end_recording():
-    global midi_file, midi_track, receipt, recording
+    global recording
 
     turn_off_recording_light()
 
@@ -328,8 +319,6 @@ def end_recording():
     recording = False
 
 def next_id(default=1000):
-    global RECORDINGS_PATH
-
     try:
         return (
             max(
@@ -343,14 +332,10 @@ def next_id(default=1000):
         return default
 
 def turn_on_recording_light() -> None:
-    global RECORDING_LIGHT_GPIO
-
     pi.write(RECORDING_LIGHT_GPIO, 1)
 
 
 def turn_off_recording_light() -> None:
-    global RECORDING_LIGHT_GPIO
-
     pi.write(RECORDING_LIGHT_GPIO, 0)
 
 def start_playing(id: str) -> None:
