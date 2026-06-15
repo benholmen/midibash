@@ -30,12 +30,13 @@ RECORDING_LIGHT_GPIO = 27
 RECORDINGS_PATH = "recordings/"
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
+# MCP23017 addresses are 0x20, 0x21, 0x22, 0x23, 0x24
 pin_mapping = {
-    57: 1,  # A3
-    60: 0,  # C4
-    65: 2,  # F4
-    69: 3,  # A4
-    71: 4,  # B4
+    57: (0x20, 1),
+    60: (0x20, 0),
+    65: (0x20, 2),
+    69: (0x20, 3),
+    71: (0x20, 4),
 }
 
 active_solenoids = {}
@@ -106,7 +107,7 @@ def handle_midi_msg(message) -> None:
             start_note(message.note, duration_for(message.velocity))
 
 
-def pin_for(note: int) -> int:
+def pin_for(note: int) -> tuple:
     if note in pin_mapping:
         return pin_mapping.get(note)
 
@@ -172,17 +173,22 @@ def init_keyboard() -> None:
 def init_pins() -> None:
     global pi
 
+    mcp_addresses_in_use = {address for address, _ in pin_mapping}
+    mcps = []
+
     try:
         i2c = board.I2C()
-        mcp = MCP23017(i2c, address=0x20)
-        print("Using MCP23017 0x20")
+
+        for address in mcp_addresses_in_use:
+            mcps[address] = MCP23017(i2c, address=address)
+            print(f"Using MCP23017 {address}")
     except Exception as e:
-        print(f"Could not connect to MCP23017: {e}")
+        print(f"Could not connect to MCP23017 at {address}: {e}")
         exit()
 
-    for midi_note, pin in pin_mapping.items():
-        print(f"midi {midi_note} → pin {pin}")
-        i2c_pin = mcp.get_pin(pin)
+    for midi_note, (address, pin) in pin_mapping.items():
+        print(f"midi {midi_note} → pin {address} {pin}")
+        i2c_pin = mcps[address].get_pin(pin)
         i2c_pin.switch_to_output(value=False)
         pins[midi_note] = i2c_pin
 
@@ -195,8 +201,6 @@ def init_pins() -> None:
     except Exception as e:
         print(f"Cannot initialize GPIO: {e}")
         exit()
-
-
 
 
 def init_barcode_scanner() -> None:
