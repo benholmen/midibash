@@ -22,7 +22,7 @@ KEYBOARD_NAMES = [
     "iRig Keys 2 PRO",
     "LPK25 mk2",
 ]
-FEEDER_GPIO = 22
+FEEDER_GPIO = 4
 BUTTON_GPIO = 17  # BCM pin wired button-to-GND
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 1.0  # sec
@@ -54,6 +54,9 @@ pending_messages = []
 recording_id = None
 
 def main():
+    print("\033[90m", "initializing pins", "\033[0m")
+    init_pins()
+
     print("\033[90m", "initializing button", "\033[0m")
     button_handler = init_button()
 
@@ -62,9 +65,6 @@ def main():
 
     print("\033[90m", "initializing barcode scanner", "\033[0m")
     init_barcode_scanner()
-
-    print("\033[90m", "initializing pins", "\033[0m")
-    init_pins()
 
     print("\033[90m", "initializing receipt feeder", "\033[0m")
     init_feeder()
@@ -88,6 +88,8 @@ def main():
             end_recording()
 
         turn_off_solenoids(force=True)
+
+        stop_feeder()
 
         pi.stop()
 
@@ -173,8 +175,9 @@ def init_keyboard() -> None:
 def init_pins() -> None:
     global pi
 
-    mcp_addresses_in_use = {address for address, _ in pin_mapping}
-    mcps = []
+    mcp_addresses_in_use = {address for _, (address, _) in pin_mapping.items()}
+
+    mcps = {}
 
     try:
         i2c = board.I2C()
@@ -243,14 +246,16 @@ def init_feeder() -> None:
 
 
 def start_feeder() -> None:
-    pi.write(FEEDER_GPIO, 1)
+    pi.write(FEEDER_GPIO, 0)
+    print("\033[90m", "started feeder", "\033[0m")
 
 
 def stop_feeder() -> None:
-    pi.write(FEEDER_GPIO, 0)
+    pi.write(FEEDER_GPIO, 1)
+    print("\033[90m", "stopped feeder", "\033[0m")
 
 
-def play_pending_notes -> None:
+def play_pending_notes() -> None:
     now = time.time()
     for message in pending_messages:
 
@@ -353,7 +358,7 @@ def start_playing(id: str) -> None:
     global playing
 
     filename = f"recordings/{id}.mid"
-    if ! Path(filename).is_file():
+    if not Path(filename).is_file():
         print(f"\033[1;31m⚠️ {filename} does not exist\033[0m")
         return
 
@@ -397,7 +402,6 @@ class ButtonHandler:
 
     def cancel(self):
         self._cb.cancel()
-        self.pi.stop()
 
 
 if __name__ == "__main__":
