@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from collections import deque
 from gpiozero import Button
 import mido
 from mido import MidiFile
@@ -6,12 +7,12 @@ from pathlib import Path
 import os
 import pigpio
 import random
+import Receipt
 import serial as ScannerSerial
 import signal
 import sys
 import threading
 import time
-import Receipt
 
 # https://learn.adafruit.com/adafruit-i2c-to-8-channel-solenoid-driver/circuitpython-and-python
 import board
@@ -23,10 +24,10 @@ KEYBOARD_NAMES = [
     "LPK25 mk2",
 ]
 FEEDER_GPIO = 4
-BUTTON_GPIO = 17  # BCM pin wired button-to-GND
+BUTTON_GPIO = 23  # BCM pin wired button-to-GND
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 1.0  # sec
-RECORDING_LIGHT_GPIO = 27
+RECORDING_LIGHT_GPIO = 24
 RECORDINGS_PATH = "recordings/"
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
@@ -36,7 +37,7 @@ pin_mapping = {
     60: (0x20, 0),
     65: (0x20, 2),
     69: (0x20, 3),
-    71: (0x20, 4),
+    71: (0x21, 0),
 }
 
 active_solenoids = {}
@@ -49,8 +50,9 @@ midi_track = None
 start_time = None
 last_time = None
 receipt = None
+playing = False
 pi = None
-pending_messages = []
+pending_messages = deque()
 recording_id = None
 
 def main():
@@ -75,6 +77,9 @@ def main():
         while True:
             # turn off any solenoids that have expired
             turn_off_solenoids()
+
+            # play any pending notes
+            play_pending_notes()
 
             # sleep for 1 ms
             time.sleep(0.001)
@@ -257,7 +262,8 @@ def stop_feeder() -> None:
 
 def play_pending_notes() -> None:
     now = time.time()
-    for message in pending_messages:
+    while pending_messages and pending_messages[0].time < now:
+        message = pending_messages.popleft()
 
         pin = pin_for(message.note)
 
@@ -295,7 +301,7 @@ def start_recording():
     recording = True
     last_time = None
 
-    receipt = Receipt.Receipt(recording_id, print = False)
+    receipt = Receipt.Receipt(recording_id, print = True)
     receipt.start()
 
 
@@ -334,6 +340,7 @@ def end_recording():
 
     recording = False
 
+
 def next_id(default=1000):
     try:
         return (
@@ -347,12 +354,14 @@ def next_id(default=1000):
     except ValueError:
         return default
 
+
 def turn_on_recording_light() -> None:
     pi.write(RECORDING_LIGHT_GPIO, 1)
 
 
 def turn_off_recording_light() -> None:
     pi.write(RECORDING_LIGHT_GPIO, 0)
+
 
 def start_playing(id: str) -> None:
     global playing
@@ -361,6 +370,8 @@ def start_playing(id: str) -> None:
     if not Path(filename).is_file():
         print(f"\033[1;31m⚠️ {filename} does not exist\033[0m")
         return
+
+    print(f"\033[1;32m▶︎ {filename}\033[0m")
 
     playing = True
     absolute_time = None
@@ -374,9 +385,12 @@ def start_playing(id: str) -> None:
             message.time = absolute_time
             pending_messages.append(message)
 
+    # todo: calculate when playback will end
+
 def end_playing():
     global playing
     playing = False
+
 
 class ButtonHandler:
     def __init__(self, pi, callback):
