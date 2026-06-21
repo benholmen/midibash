@@ -12,16 +12,16 @@ from escpos import constants
 class Receipt:
     # 203 dpi / 8 dpmm
 
-    border_thickness = 3
-    mid_radius = 30
+    note_radius = 30
+    note_stroke = 3
     min_note = 48
     max_note = 84
     width = 512
-    height = 2400 # 11.8 inches
+    height = 2400  # 11.8 inches
     chunk_height = 200
-    x_padding = mid_radius
+    x_padding = note_radius
     y_padding = chunk_height
-    left_padding = 38
+    left_padding = 38  # centers the receipt - determined experimentally
     mm_per_second = height / 60
     serial_port = "/dev/ttyUSB0"
     baud_rate = 115200
@@ -33,6 +33,7 @@ class Receipt:
     _image = None
     _draw = None
     _print = None
+    _cut_on_last_chunk = False
 
     def __init__(self, text, print = True):
         self.text = text
@@ -56,21 +57,14 @@ class Receipt:
         self.render_queue.put(0)
 
     def finish(self) -> None:
-        # finish any outstanding chunks
+        self._cut_on_last_chunk = True
+
+        # render any outstanding chunks
         while (self._next_chunk + 1) * self.chunk_height <= self.height:
             print(f"queuing {self._next_chunk}")
             self.render_queue.put(self._next_chunk)
 
             self._next_chunk += 1
-
-        if self._print is False:
-            self.save()
-
-        # todo: cut the paper, but it has to be cut after the last chunk is printed
-        # todo: make sure we've sent all the things to the printer before doing this
-        # maybe accomplish it in the render_queue?
-        # if self._print is False:
-            # self.printer.cut()
 
     def add_note(self, note, absolute_time) -> None:
         self.notes.append([absolute_time, note])
@@ -83,8 +77,8 @@ class Receipt:
         if (
             y
             > (self._next_chunk + 1) * self.chunk_height
-            + self.mid_radius
-            + self.border_thickness
+            + self.note_radius
+            + self.note_stroke
         ):
             self.render_queue.put(self._next_chunk)
 
@@ -174,10 +168,11 @@ class Receipt:
             print("expanding")
             self.expand()
 
-        radius = (note.velocity / 127) * self.mid_radius
-        self._draw.circle((x, y), radius, 1, 0, self.border_thickness)
+        # velocity is 0-127; radius should be proportional to velocity
+        radius = (note.velocity / 127) * self.note_radius
+        self._draw.circle((x, y), radius, 1, 0, self.note_stroke)
 
-    def _render_chunk(self, n) -> Image.Image:
+    def _render_chunk(self, n) -> None:
         # draw every note in the queue before returning a chunk
         while self.pending_notes:
             absolute_time, note = self.pending_notes.pop()
@@ -191,9 +186,18 @@ class Receipt:
             if self._print is True:
                 self.printer.image(chunk, impl="graphics")
             else:
-                chunk.save(f"receipts/chunk-{n}.png")
+                chunk.save(f"receipts/{self.text}-{n}.png")
         except ValueError:
             print("Could not return crop outside of bounds")
+
+        if self._cut_on_last_chunk and (n + 1) * self.chunk_height >= self.height:
+            print("Last chunk, cutting + saving")
+            self.cut()
+            self.save()
+
+    def cut(self) -> None:
+        if self._print is True:
+            self.printer.cut()
 
     def save(self) -> None:
         self._image.save(f"receipts/{self.text}.png")
@@ -202,6 +206,6 @@ class Receipt:
         x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
             self.width - self.x_padding * 2 - self.left_padding
         ) + self.x_padding + self.left_padding
-        y = absolute_time * self.mm_per_second + self.y_padding
+        y = absolute_time * self.mm_per_second + self.y_padding + self.note_radius + self.note_stroke
 
         return x, y
