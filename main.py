@@ -86,6 +86,7 @@ start_time = None
 last_time = None
 receipt = None
 playing = False
+playing_id = None
 pi = None
 pending_messages = deque()
 recording_id = None
@@ -259,8 +260,8 @@ def barcode_scanner_thread(serial) -> None:
                 for char in data:
                     if char == "\n" or char == "\r":
                         if buffer:
-                            if playing:
-                                print("\t\033[90m", f"scanned {buffer} but ignoring", "\033[0m")
+                            if playing_id == buffer:
+                                print("\t\033[90m", f"scanned {buffer} but currently playing it", "\033[0m")
                             else:
                                 print("\t\033[90m", f"scanned {buffer}", "\033[0m")
                                 start_playing(buffer)
@@ -377,7 +378,7 @@ def turn_off_recording_light() -> None:
 
 
 def start_playing(id: str) -> None:
-    global playing
+    global playing, playing_id
 
     filename = f"recordings/{id}.mid"
     if not Path(filename).is_file():
@@ -388,6 +389,7 @@ def start_playing(id: str) -> None:
 
     playing = True
     absolute_time = None
+    playing_id = id
     for message in MidiFile(filename):
         if absolute_time:
             absolute_time += message.time
@@ -401,8 +403,9 @@ def start_playing(id: str) -> None:
     # todo: calculate when playback will end
 
 def end_playing():
-    global playing
+    global playing, playing_id
     playing = False
+    playing_id = None
 
 
 class ButtonHandler:
