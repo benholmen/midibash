@@ -23,7 +23,6 @@ KEYBOARD_NAMES = [
     "iRig Keys 2 PRO",
     "LPK25 mk2",
 ]
-FEEDER_GPIO = 4
 BUTTON_GPIO = 23  # BCM pin wired button-to-GND
 BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 1.0  # sec
@@ -104,9 +103,6 @@ def main():
     print("\033[90m", "initializing barcode scanner", "\033[0m")
     init_barcode_scanner()
 
-    print("\033[90m", "initializing receipt feeder", "\033[0m")
-    init_feeder()
-
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
     try:
@@ -129,8 +125,6 @@ def main():
             end_recording()
 
         turn_off_solenoids(force=True)
-
-        stop_feeder()
 
         pi.stop()
 
@@ -281,21 +275,6 @@ def barcode_scanner_thread(serial) -> None:
             time.sleep(1)
 
 
-def init_feeder() -> None:
-    pi.set_mode(FEEDER_GPIO, pigpio.OUTPUT)
-    start_feeder()
-
-
-def start_feeder() -> None:
-    pi.write(FEEDER_GPIO, 0)
-    print("\033[90m", "started feeder", "\033[0m")
-
-
-def stop_feeder() -> None:
-    pi.write(FEEDER_GPIO, 1)
-    print("\033[90m", "stopped feeder", "\033[0m")
-
-
 def play_pending_notes() -> None:
     now = time.time()
     while pending_messages and pending_messages[0].time < now:
@@ -317,10 +296,8 @@ def turn_off_solenoids(force: bool = False) -> None:
 def toggle_recording():
     if recording:
         end_recording()
-        start_feeder()
     else:
         start_recording()
-        stop_feeder()
 
 
 def start_recording():
