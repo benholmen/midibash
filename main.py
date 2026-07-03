@@ -4,6 +4,7 @@ from gpiozero import Button
 import mido
 from mido import MidiFile
 from pathlib import Path
+from prometheus_client import start_http_server, Counter, Gauge
 import os
 import pigpio
 import random
@@ -91,6 +92,16 @@ pi = None
 pending_messages = deque()
 recording_id = None
 
+# Prometheus
+PROMETHEUS_PORT = 8000
+KEYS_PRESSED = Counter('keys_pressed', 'Keys pressed', ['note'])
+NOTES_PLAYED = Counter('notes_played', 'Notes played', ['note'])
+NOTES_RECORDED = Counter('notes_recorded', 'Notes recorded', ['note'])
+TRACKS_RECORDED = Counter('tracks_recorded', 'Tracks recorded', ['track_id'])
+TRACKS_REPLAYED = Counter('tracks_replayed', 'Tracks replayed', ['track_id'])
+# LAST_NOTE_TIME = Gauge('last_note_timestamp', 'Time since last note recorded')
+PI_TEMP = Gauge('pi_temp', 'CPU Temp')
+
 def main():
     print("\033[90m", "initializing pins", "\033[0m")
     init_pins()
@@ -103,6 +114,9 @@ def main():
 
     print("\033[90m", "initializing barcode scanner", "\033[0m")
     init_barcode_scanner()
+
+    print("\033[90m", "initializing prometheus web server", "\033[0m")
+    init_prometheus()
 
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
@@ -139,6 +153,8 @@ def handle_midi_msg(message) -> None:
     if message.type == "note_on":
         print("\t\033[90m", message, "\033[0m")
 
+        KEYS_PRESSED.labels(note=str(message.note)).inc()
+
         pin = pin_for(message.note)
 
         if pin is not None:
@@ -173,6 +189,8 @@ def start_note(note: int, duration_ms: int) -> None:
     active_solenoids[note] = time.time() + duration_ms / 1000
 
     pins[note].value = True
+
+    NOTES_PLAYED.labels(note=str(note)).inc()
 
 
 def end_note(note: int) -> None:
@@ -337,6 +355,8 @@ def record_note(message) -> None:
 
     receipt.add_note(message, absolute_time=now - start_time)
 
+    NOTES_RECORDED.labels(note=str(note)).inc()
+
 
 def end_recording():
     global recording
@@ -353,6 +373,8 @@ def end_recording():
     receipt.finish()
 
     recording = False
+
+    TRACKS_RECORDED.labels(note=str(recording_id)).inc()
 
 
 def next_id(default=1000):
@@ -400,13 +422,19 @@ def start_playing(id: str) -> None:
             message.time = absolute_time
             pending_messages.append(message)
 
+    TRACKS_REPLAYED.labels(note=str(playing_id)).inc()
+
     # todo: calculate when playback will end
+
 
 def end_playing():
     global playing, playing_id
     playing = False
     playing_id = None
 
+
+def init_prometheus():
+    start_http_server(PROMETHEUS_PORT)
 
 class ButtonHandler:
     def __init__(self, pi, callback):
