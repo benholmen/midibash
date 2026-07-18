@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 from collections import deque
-from gpiozero import Button
 import mido
 from mido import MidiFile
 from pathlib import Path
 from prometheus_client import start_http_server, Counter, Gauge
 import os
 import pigpio
-import random
 import Receipt
 import serial as ScannerSerial
-import signal
 import sys
 import threading
 import time
