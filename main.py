@@ -84,6 +84,7 @@ playing_id = None
 pi = None
 pending_messages = deque()
 recording_id = None
+last_activity_timestamp = time.time()
 
 # Prometheus
 PROMETHEUS_PORT = 8000
@@ -92,10 +93,12 @@ NOTES_PLAYED = Counter('notes_played', 'Notes played', ['note'])
 NOTES_RECORDED = Counter('notes_recorded', 'Notes recorded', ['note'])
 TRACKS_RECORDED = Counter('tracks_recorded', 'Tracks recorded', ['track_id'])
 TRACKS_REPLAYED = Counter('tracks_replayed', 'Tracks replayed', ['track_id'])
+RECEIPT_PAPER_PRINTED = Counter('receipt_paper_printed', 'Total feet of receipt paper printed')
 # LAST_NOTE_TIME = Gauge('last_note_timestamp', 'Time since last note recorded')
 PI_TEMP = Gauge('pi_temp', 'CPU Temp')
+STATUS = Gauge('status', 'Status')
 
-def main():
+def main() -> None:
     print("\033[90m", "initializing pins", "\033[0m")
     init_pins()
 
@@ -121,6 +124,9 @@ def main():
             # play any pending notes
             play_pending_notes()
 
+            if time.time() > last_activity_timestamp + IDLE_DELAY:
+                vamp()
+
             # sleep for 1 ms
             time.sleep(0.001)
 
@@ -138,6 +144,8 @@ def main():
 
 
 def handle_midi_msg(message) -> None:
+    global last_activity_timestamp
+
     print("\t\033[90m", message, "\033[0m")
 
     if recording:
@@ -152,6 +160,8 @@ def handle_midi_msg(message) -> None:
 
         if pin is not None:
             start_note(message.note, duration_for(message.velocity))
+
+            last_activity_timestamp = time.time()
 
 
 def pin_for(note: int) -> tuple:
@@ -171,6 +181,8 @@ def duration_for(velocity: int) -> int:
 
 
 def start_note(note: int, duration_ms: int) -> None:
+    global last_activity_timestamp
+
     # todo: refactor this so we can limit the number of active solenoids at once, e.g.
     # active_solenoids[] = {
     #     note: note,
@@ -183,7 +195,11 @@ def start_note(note: int, duration_ms: int) -> None:
 
     pins[note].value = True
 
+    print(f"playing {note}")
+
     NOTES_PLAYED.labels(note=str(note)).inc()
+
+    last_activity_timestamp = time.time()
 
 
 def end_note(note: int) -> None:
@@ -305,14 +321,14 @@ def turn_off_solenoids(force: bool = False) -> None:
             end_note(note)
 
 
-def toggle_recording():
+def toggle_recording() -> None:
     if recording:
         end_recording()
     else:
         start_recording()
 
 
-def start_recording():
+def start_recording() -> None:
     global midi_file, midi_track, receipt, recording, last_time, recording_id
 
     turn_on_recording_light()
@@ -351,7 +367,7 @@ def record_note(message) -> None:
     NOTES_RECORDED.labels(note=str(note)).inc()
 
 
-def end_recording():
+def end_recording() -> None:
     global recording
 
     turn_off_recording_light()
@@ -367,8 +383,8 @@ def end_recording():
 
     recording = False
 
-    TRACKS_RECORDED.labels(note=str(recording_id)).inc()
-
+    TRACKS_RECORDED.labels(track_id=str(recording_id)).inc()
+    RECEIPT_PAPER_PRINTED.inc(receipt.estimate_length(midi_file.length))
 
 def next_id(default=1000):
     try:
@@ -402,6 +418,8 @@ def start_playing(id: str) -> None:
 
     print(f"\033[1;32m▶︎ {filename}\033[0m")
 
+    pending_messages.clear()
+
     playing = True
     absolute_time = None
     playing_id = id
@@ -420,14 +438,42 @@ def start_playing(id: str) -> None:
     # todo: calculate when playback will end
 
 
-def end_playing():
+def end_playing() -> None:
     global playing, playing_id
     playing = False
     playing_id = None
 
 
-def init_prometheus():
+def vamp() -> None:
+    global last_activity_timestamp
+
+    print("\033[93m", "vamping!", "\033[0m")
+
+    bpm = 72
+    period = bpm * 4  # sixteenth notes
+    # this is Cmaj + 7
+    notes = [
+        60, 64, 67,
+        72, 76, 69,
+        84, 88, 91, 94, 95, 96,
+        72, 76, 69,
+        84, 88, 91, 94, 95, 96
+    ]
+
+    # shuffled_notes = random.sample(notes, len(notes))
+
+    message_time = time.time() + 0.5
+    for note in notes:
+        message_time = message_time + 60 / period  # todo: maybe swing this?
+        message = mido.Message('note_on', note=note, velocity=random.randint(10, 127), time=message_time)
+        pending_messages.append(message)
+
+    last_activity_timestamp = time.time()
+
+
+def init_prometheus() -> None:
     start_http_server(PROMETHEUS_PORT)
+
 
 class ButtonHandler:
     def __init__(self, pi, callback):

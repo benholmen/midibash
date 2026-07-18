@@ -202,6 +202,12 @@ class Receipt:
     def save(self) -> None:
         self._image.save(f"receipts/{self.text}.png")
 
+    def estimate_length(self, length) -> float:
+        _, y = self._coords(50, length)
+        height_in_inches = (math.ceil(y / 2400) * 2400) / 203
+
+        return (height_in_inches + 2) / 12
+
     def _coords(self, note, absolute_time) -> tuple[float, float]:
         x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
             self.width - self.x_padding * 2 - self.left_padding
