@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 from prometheus_client import start_http_server, Gauge
+import adafruit_dht
+import board
 import time
+
+# DHT22 GPIO PIN
+DHT_PIN = 24
 
 # Prometheus
 PROMETHEUS_PORT = 8001
 PI_TEMP = Gauge('pi_temp', 'CPU Temp')
 CABINET_TEMP = Gauge('cabinet_temp', 'Cabinet Temp')
 
-def main():
+dht = None
+
+
+def main() -> None:
     print("\033[90m", "initializing prometheus web server", "\033[0m")
     init_prometheus()
+
+    print("\033[90m", "initializing DHT22 sensor", "\033[0m")
+    init_dht()
 
     try:
         while True:
@@ -26,8 +37,13 @@ def main():
     except KeyboardInterrupt:
         return
 
-def init_prometheus():
+def init_prometheus() -> None:
     start_http_server(PROMETHEUS_PORT)
+
+
+def init_dht() -> None:
+    global dht
+    dht = adafruit_dht.DHT22(board.D18)
 
 
 def read_pi_temp() -> float:
@@ -39,8 +55,7 @@ def read_pi_temp() -> float:
 
 
 def read_cabinet_temp() -> float:
-    # todo: read from the little temperature sensor
-    return 42.0
+    return dht.temperature
 
 if __name__ == "__main__":
     main()
