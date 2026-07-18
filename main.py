@@ -26,6 +26,7 @@ BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 1.0  # sec
 RECORDING_LIGHT_GPIO = 24
 RECORDINGS_PATH = "recordings/"
+IDLE_DELAY = 5
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 # MCP23017 addresses are 0x20, 0x21, 0x22, 0x23, 0x24
