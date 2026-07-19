@@ -4,9 +4,6 @@ import adafruit_dht
 import board
 import time
 
-# DHT22 GPIO PIN
-DHT_PIN = 24
-
 # Prometheus
 PROMETHEUS_PORT = 8001
 PI_TEMP = Gauge('pi_temp', 'CPU Temp')
@@ -29,8 +26,11 @@ def main() -> None:
 
             print("temps", round(pi_temp, 1), round(cabinet_temp, 1))
 
-            PI_TEMP.set(pi_temp)
-            CABINET_TEMP.set(cabinet_temp)
+            if pi_temp is not None:
+                PI_TEMP.set(pi_temp)
+
+            if cabinet_temp is not None:
+                CABINET_TEMP.set(cabinet_temp)
 
             time.sleep(5)
 
@@ -43,19 +43,27 @@ def init_prometheus() -> None:
 
 def init_dht() -> None:
     global dht
-    dht = adafruit_dht.DHT22(board.D18)
+    dht = adafruit_dht.DHT22(board.D25)
 
 
-def read_pi_temp() -> float:
+def read_pi_temp() -> float | None:
     try:
         with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
             return float(f.read()) / 1000.0
     except:
-        return 0.0
+        return None
 
 
-def read_cabinet_temp() -> float:
-    return dht.temperature
+def read_cabinet_temp() -> float | None:
+    try:
+        cabinet_temp = dht.temperature
+
+        if cabinet_temp is not None:
+            return dht.temperature
+        else:
+            return None
+    except:
+        return None
 
 if __name__ == "__main__":
     main()
