@@ -45,6 +45,18 @@ wheels = [
 ]
 
 [[package]]
+name = "adafruit-circuitpython-dht"
+version = "4.0.12"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adafruit-blinka" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/05/35/6d6b3ceb3befe2832d9610b17ace2702fb0b6481ec498855117f44bde1d3/adafruit_circuitpython_dht-4.0.12.tar.gz", hash = "sha256:a20575d8e9d191e26802f0d432cf2bdee1b646d4d16650cb63e848c590a9cced", size = 27364, upload-time = "2026-04-23T20:56:00.703Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/72/6e/096f1ff1c1ff18492f71c0009fc91cc932cf048782723edb5d1b4856b4e1/adafruit_circuitpython_dht-4.0.12-py3-none-any.whl", hash = "sha256:8ade2a0f037ee703f2ddba51d3cfbe564d97c5e8905c3ab95eda4a6b0a8b6ff0", size = 7885, upload-time = "2026-04-23T20:55:59.429Z" },
+]
+
+[[package]]
 name = "adafruit-circuitpython-mcp230xx"
 version = "2.5.19"
 source = { registry = "https://pypi.org/simple" }
@@ -191,6 +203,7 @@ name = "midibash"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "adafruit-circuitpython-dht" },
     { name = "mido" },
     { name = "numpy" },
     { name = "pillow" },
@@ -215,6 +228,7 @@ raspberry-pi = [
 [package.metadata]
 requires-dist = [
     { name = "adafruit-blinka", marker = "extra == 'raspberry-pi'", specifier = ">=8.68.1" },
+    { name = "adafruit-circuitpython-dht", specifier = ">=4.0.12" },
     { name = "adafruit-circuitpython-mcp230xx", marker = "extra == 'raspberry-pi'", specifier = ">=2.5.19" },
     { name = "adafruit-circuitpython-typing", marker = "extra == 'raspberry-pi'", specifier = ">=1.12.3" },
     { name = "gpiozero", marker = "extra == 'raspberry-pi'", specifier = ">=2.0.1" },
