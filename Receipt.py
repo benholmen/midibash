@@ -2,6 +2,8 @@ from PIL import Image, ImageDraw
 import barcode
 from barcode.writer import ImageWriter as BarcodeWriter
 import io
+import math
+import mido
 import numpy
 import queue
 import threading
@@ -14,8 +16,8 @@ class Receipt:
 
     note_radius = 30
     note_stroke = 3
-    min_note = 48
-    max_note = 84
+    min_note = 60
+    max_note = 96
     width = 512
     height = 2400  # 11.8 inches
     chunk_height = 200
@@ -208,8 +210,10 @@ class Receipt:
 
         return (height_in_inches + 2) / 12
 
-    def _coords(self, note, absolute_time) -> tuple[float, float]:
-        x = (note.note - self.min_note) / (self.max_note - self.min_note) * (
+    def _coords(self, note: int | mido.Message, absolute_time: float) -> tuple[float, float]:
+        note_num = note if isinstance(note, int) else note.note
+
+        x = (note_num - self.min_note) / (self.max_note - self.min_note) * (
             self.width - self.x_padding * 2 - self.left_padding
         ) + self.x_padding + self.left_padding
         y = absolute_time * self.mm_per_second + self.y_padding + self.note_radius + self.note_stroke
