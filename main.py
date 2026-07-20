@@ -6,6 +6,7 @@ from pathlib import Path
 from prometheus_client import start_http_server, Counter, Gauge
 import os
 import pigpio
+import random
 import Receipt
 import serial as ScannerSerial
 import sys
@@ -324,6 +325,9 @@ def play_playback_notes() -> None:
         if pin is not None:
             start_note(message.note, duration_for(message.velocity))
 
+    if playing and not playback_messages:
+        end_playing()
+
 
 def turn_off_solenoids(force: bool = False) -> None:
     now = time.time()
@@ -447,11 +451,10 @@ def start_playing(id: str) -> None:
 
     TRACKS_REPLAYED.labels(note=str(playing_id)).inc()
 
-    # todo: calculate when playback will end
-
 
 def end_playing() -> None:
     global playing, playing_id
+
     playing = False
     playing_id = None
 
