@@ -74,7 +74,7 @@ active_solenoids = {}
 pins = {}
 button_record = None
 recording = False
-midi_port = None
+midi_ports = {}
 midi_file = None
 midi_track = None
 start_time = None
@@ -83,7 +83,8 @@ receipt = None
 playing = False
 playing_id = None
 pi = None
-pending_messages = deque()
+playback_messages = deque()
+live_messages = deque()
 recording_id = None
 last_activity_timestamp = time.time()
 
@@ -107,7 +108,7 @@ def main() -> None:
     button_handler = init_button()
 
     print("\033[90m", "initializing keyboard", "\033[0m")
-    init_keyboard()
+    init_keyboards()
 
     print("\033[90m", "initializing barcode scanner", "\033[0m")
     init_barcode_scanner()
@@ -122,11 +123,14 @@ def main() -> None:
             # turn off any solenoids that have expired
             turn_off_solenoids()
 
-            # play any pending notes
-            play_pending_notes()
+            # play any live notes
+            play_live_notes()
 
-            if time.time() > last_activity_timestamp + IDLE_DELAY:
-                vamp()
+            # play any playback notes
+            play_playback_notes()
+
+            # if time.time() > last_activity_timestamp + IDLE_DELAY:
+                # vamp()
 
             # sleep for 1 ms
             time.sleep(0.001)
@@ -145,24 +149,9 @@ def main() -> None:
 
 
 def handle_midi_msg(message) -> None:
-    global last_activity_timestamp
-
     print("\t\033[90m", message, "\033[0m")
 
-    if recording:
-        record_note(message)
-
-    if message.type == "note_on":
-        print("\t\033[90m", message, "\033[0m")
-
-        KEYS_PRESSED.labels(note=str(message.note)).inc()
-
-        pin = pin_for(message.note)
-
-        if pin is not None:
-            start_note(message.note, duration_for(message.velocity))
-
-            last_activity_timestamp = time.time()
+    live_messages.append(message)
 
 
 def pin_for(note: int) -> tuple:
@@ -196,7 +185,7 @@ def start_note(note: int, duration_ms: int) -> None:
 
     pins[note].value = True
 
-    print(f"playing {note}")
+    # print(f"playing {note}")
 
     NOTES_PLAYED.labels(note=str(note)).inc()
 
@@ -215,18 +204,18 @@ def init_button() -> None:
     return ButtonHandler(pi, toggle_recording)
 
 
-def init_keyboard() -> None:
-    global midi_port
+def init_keyboards() -> None:
+    global midi_ports
 
-    while midi_port is None:
+    while not midi_ports:
         for input_name in mido.get_input_names():
             for keyboard_name in KEYBOARD_NAMES:
                 if keyboard_name in input_name:
-                    midi_port = mido.open_input(input_name, callback=handle_midi_msg)
+                    midi_ports[input_name] = mido.open_input(input_name, callback=handle_midi_msg)
 
-                    print(f"Using {input_name}")
+                    print(f"Using 🎹 {input_name}")
 
-        if midi_port is None:
+        if not midi_ports:
             sys.stdout.write(
                 f" Available inputs: "
                 + ", ".join(mido.get_input_names()).ljust(40, " ")
@@ -304,10 +293,31 @@ def barcode_scanner_thread(serial) -> None:
             time.sleep(1)
 
 
-def play_pending_notes() -> None:
+def play_live_notes() -> None:
+    global last_activity_timestamp
+
     now = time.time()
-    while pending_messages and pending_messages[0].time < now:
-        message = pending_messages.popleft()
+    while live_messages and live_messages[0].time < now:
+        message = live_messages.popleft()
+
+        if recording:
+            record_note(message)
+
+        if message.type == "note_on":
+            KEYS_PRESSED.labels(note=str(message.note)).inc()
+
+            pin = pin_for(message.note)
+
+            if pin is not None:
+                start_note(message.note, duration_for(message.velocity))
+
+                last_activity_timestamp = now
+
+
+def play_playback_notes() -> None:
+    now = time.time()
+    while playback_messages and playback_messages[0].time < now:
+        message = playback_messages.popleft()
 
         pin = pin_for(message.note)
 
@@ -340,10 +350,11 @@ def start_recording() -> None:
 
     midi_file = MidiFile()
     midi_track = midi_file.add_track("midibash")
+
+    receipt = Receipt.Receipt(recording_id, print = True)
     recording = True
     last_time = None
 
-    receipt = Receipt.Receipt(recording_id, print = True)
     receipt.start()
 
 
@@ -365,7 +376,7 @@ def record_note(message) -> None:
 
     receipt.add_note(message, absolute_time=now - start_time)
 
-    NOTES_RECORDED.labels(note=str(note)).inc()
+    NOTES_RECORDED.labels(note=str(message.note)).inc()
 
 
 def end_recording() -> None:
@@ -419,7 +430,7 @@ def start_playing(id: str) -> None:
 
     print(f"\033[1;32m▶︎ {filename}\033[0m")
 
-    pending_messages.clear()
+    playback_messages.clear()
 
     playing = True
     absolute_time = None
@@ -432,7 +443,7 @@ def start_playing(id: str) -> None:
 
         if message.type == "note_on":
             message.time = absolute_time
-            pending_messages.append(message)
+            playback_messages.append(message)
 
     TRACKS_REPLAYED.labels(note=str(playing_id)).inc()
 
@@ -467,7 +478,7 @@ def vamp() -> None:
     for note in notes:
         message_time = message_time + 60 / period  # todo: maybe swing this?
         message = mido.Message('note_on', note=note, velocity=random.randint(10, 127), time=message_time)
-        pending_messages.append(message)
+        playback_messages.append(message)
 
     last_activity_timestamp = time.time()
 
