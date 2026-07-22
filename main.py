@@ -273,25 +273,36 @@ def barcode_scanner_thread(serial) -> None:
     while True:
         try:
             if serial.in_waiting > 0:
-                data = serial.read(serial.in_waiting).decode("utf-8")
+                data = serial.read(serial.in_waiting).decode("utf-8", errors="ignore")
 
                 for char in data:
-                    if char == "\n" or char == "\r":
-                        if buffer:
-                            if playing_id == buffer:
-                                print("\t\033[90m", f"scanned {buffer} but currently playing it", "\033[0m")
-                            else:
-                                print("\t\033[90m", f"scanned {buffer}", "\033[0m")
-                                start_playing(buffer)
-
+                    if char in ("\r", "\n"):
+                        if buffer.strip():
+                            process_barcode_scan(buffer.strip())
                             buffer = ""
                     else:
                         buffer += char
+                        last_char_time = time.time()
+            elif buffer and (time.time() - last_char_time > 0.1):
+                process_barcode_scan(buffer.strip())
+                buffer = ""
 
             time.sleep(0.01)
         except Exception as e:
             print(f"Scanner thread error: {e}")
+            buffer = ""
             time.sleep(1)
+
+
+def process_barcode_scan(scanned: str) -> None:
+    global playing_id
+
+    if playing_id == scanned:
+        print("\t\033[90m", f"scanned {scanned} but currently playing it", "\033[0m")
+    else:
+        print("\t\033[90m", f"scanned {scanned}", "\033[0m")
+        print(playing_id, scanned)
+        start_playing(scanned)
 
 
 def play_live_notes() -> None:
@@ -440,9 +451,7 @@ def start_playing(id: str) -> None:
 
     playback_messages.clear()
 
-    playing = True
     absolute_time = None
-    playing_id = id
     for message in MidiFile(filename):
         if absolute_time:
             absolute_time += message.time
@@ -453,7 +462,10 @@ def start_playing(id: str) -> None:
             message.time = absolute_time
             playback_messages.append(message)
 
-    TRACKS_REPLAYED.labels(note=str(playing_id)).inc()
+    playing = True
+    playing_id = id
+
+    TRACKS_REPLAYED.labels(track_id=str(playing_id)).inc()
 
 
 def end_playing() -> None:
