@@ -346,6 +346,10 @@ def toggle_recording() -> None:
 def start_recording() -> None:
     global midi_file, midi_track, receipt, recording, last_time, recording_id
 
+    if receipt and receipt.is_printing():
+        print("\033[1;31mstill printing, ignoring\033[0m")
+        return
+
     turn_on_recording_light()
 
     print("\033[1;31m⏺︎ recording...\033[0m")

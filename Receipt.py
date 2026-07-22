@@ -36,6 +36,7 @@ class Receipt:
     _draw = None
     _print = None
     _cut_on_last_chunk = False
+    _printing = False
 
     def __init__(self, text, print = True):
         self.text = text
@@ -56,6 +57,7 @@ class Receipt:
 
     def start(self):
         # print the first chunk
+        self._printing = True
         self.render_queue.put(0)
 
     def finish(self) -> None:
@@ -196,6 +198,7 @@ class Receipt:
             print("Last chunk, cutting + saving")
             self.cut()
             self.save()
+            self._printing = False
 
     def cut(self) -> None:
         if self._print is True:
@@ -209,6 +212,9 @@ class Receipt:
         height_in_inches = (math.ceil(y / 2400) * 2400) / 203
 
         return (height_in_inches + 2) / 12
+
+    def is_printing(self) -> bool:
+        return self._printing
 
     def _coords(self, note: int | mido.Message, absolute_time: float) -> tuple[float, float]:
         note_num = note if isinstance(note, int) else note.note
