@@ -28,7 +28,8 @@ BUTTON_COOLDOWN_TIME = 1.0  # sec
 RECORDING_LIGHT_GPIO = 24
 RECORDINGS_PATH = "recordings/"
 REPLAYS_PATH = "replay/"
-IDLE_DELAY = 12
+# IDLE_DELAY = 120
+IDLE_DELAY = 30
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 # MCP23017 addresses are 0x20, 0x21, 0x22, 0x23, 0x24
@@ -132,7 +133,8 @@ def main() -> None:
             play_playback_notes()
 
             if time.time() > last_activity_timestamp + IDLE_DELAY:
-                replay_random()
+                # replay_random()
+                soft_sweep()
 
             # sleep for 1 ms
             time.sleep(0.001)
@@ -483,6 +485,39 @@ def replay_random() -> None:
         random_replay = random.choice(replays)
         print("\033[93m", f"replaying {random_replay} out of", len(replays), "replay options\033[0m")
         start_playing(random_replay.stem)
+
+
+def soft_sweep() -> None:
+    global last_activity_timestamp
+
+    print("\033[93m", "sweeping", "\033[0m")
+
+    bpm = 72
+    period = bpm * 8  # thirty-second notes
+    # this is Cmaj + 7
+    notes = range(60, 96 + 1)
+
+    params = [
+        (1, bpm * 8),
+        (10, bpm * 12),
+        (20, bpm * 16),
+        (40, bpm * 4),
+        # (127, bpm * 12),
+        (1, bpm * 16)
+    ]
+
+    shuffled_notes = random.sample(notes, len(notes))
+
+    message_time = time.time() + 0.5
+    for velocity, period in params:
+        n = 0
+        for note in shuffled_notes:
+            message_time = message_time + 60 / period
+            message = mido.Message('note_on', note=note, velocity=velocity, time=message_time)
+            playback_messages.append(message)
+            n = n + 1
+
+    last_activity_timestamp = time.time()
 
 
 def vamp() -> None:
