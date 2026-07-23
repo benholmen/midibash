@@ -27,7 +27,8 @@ BUTTON_DEBOUNCE_TIME = 50_000  # µsec
 BUTTON_COOLDOWN_TIME = 1.0  # sec
 RECORDING_LIGHT_GPIO = 24
 RECORDINGS_PATH = "recordings/"
-IDLE_DELAY = 5
+REPLAYS_PATH = "replay/"
+IDLE_DELAY = 12
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 # MCP23017 addresses are 0x20, 0x21, 0x22, 0x23, 0x24
@@ -130,8 +131,8 @@ def main() -> None:
             # play any playback notes
             play_playback_notes()
 
-            # if time.time() > last_activity_timestamp + IDLE_DELAY:
-                # vamp()
+            if time.time() > last_activity_timestamp + IDLE_DELAY:
+                replay_random()
 
             # sleep for 1 ms
             time.sleep(0.001)
@@ -473,6 +474,15 @@ def end_playing() -> None:
 
     playing = False
     playing_id = None
+
+
+def replay_random() -> None:
+    replays = list(Path(REPLAYS_PATH).glob("*.mid"))
+
+    if replays:
+        random_replay = random.choice(replays)
+        print("\033[93m", f"replaying {random_replay} out of", len(replays), "replay options\033[0m")
+        start_playing(random_replay.stem)
 
 
 def vamp() -> None:
