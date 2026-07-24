@@ -8,6 +8,7 @@ import time
 PROMETHEUS_PORT = 8001
 PI_TEMP = Gauge('pi_temp', 'CPU Temp')
 CABINET_TEMP = Gauge('cabinet_temp', 'Cabinet Temp')
+CABINET_HUMIDITY = Gauge('cabinet_humidity', 'Cabinet Humidity')
 
 dht = None
 
@@ -23,14 +24,19 @@ def main() -> None:
         while True:
             pi_temp = read_pi_temp()
             cabinet_temp = read_cabinet_temp()
+            cabinet_humidity = read_cabinet_humidity()
 
-            print("temps", round(pi_temp, 1), round(cabinet_temp, 1))
+            print(f"pi:      {pi_temp}C")
+            print(f"cabinet: {cabinet_temp}C at {cabinet_humidity}%")
 
             if pi_temp is not None:
                 PI_TEMP.set(pi_temp)
 
             if cabinet_temp is not None:
                 CABINET_TEMP.set(cabinet_temp)
+
+            if cabinet_humidity is not None:
+                CABINET_HUMIDITY.set(cabinet_humidity)
 
             time.sleep(5)
 
@@ -60,6 +66,18 @@ def read_cabinet_temp() -> float | None:
 
         if cabinet_temp is not None:
             return dht.temperature
+        else:
+            return None
+    except:
+        return None
+
+
+def read_cabinet_humidity() -> float | None:
+    try:
+        cabinet_humidity = dht.humidity
+
+        if cabinet_humidity is not None:
+            return dht.humidity
         else:
             return None
     except:
