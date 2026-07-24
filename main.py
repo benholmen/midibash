@@ -28,8 +28,7 @@ BUTTON_COOLDOWN_TIME = 1.0  # sec
 RECORDING_LIGHT_GPIO = 24
 RECORDINGS_PATH = "recordings/"
 REPLAYS_PATH = "replay/"
-# IDLE_DELAY = 120
-IDLE_DELAY = 30
+IDLE_DELAY = 120
 
 # midi note -> i2c pin mapping; see https://audiodev.blog/midi-note-chart/
 # MCP23017 addresses are 0x20, 0x21, 0x22, 0x23, 0x24
@@ -121,6 +120,8 @@ def main() -> None:
 
     print("\033[93m", "… waiting for scans + midi …", "\033[0m")
 
+    soft_sweep()
+
     try:
         while True:
             # turn off any solenoids that have expired
@@ -133,8 +134,10 @@ def main() -> None:
             play_playback_notes()
 
             if time.time() > last_activity_timestamp + IDLE_DELAY:
-                # replay_random()
-                soft_sweep()
+                if random.random() > 0.2:
+                    replay_random()
+                else:
+                    soft_sweep()
 
             # sleep for 1 ms
             time.sleep(0.001)
